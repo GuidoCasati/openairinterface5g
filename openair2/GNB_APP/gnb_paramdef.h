@@ -545,6 +545,33 @@ typedef enum {
 }
 /* clang-format on */
 
+/* clang-format off */
+
+/*-------------------------------------------------------------------------------------------------------------------------------------*/
+/*                                            SIB9 time information configuration parameters                                           */
+/*-------------------------------------------------------------------------------------------------------------------------------------*/
+
+#define GNB_CONFIG_STRING_SIB9_CONFIG "sib9_config"
+
+#define GNB_CONFIG_STRING_SIB9_DAYLIGHTSAVINGTIME "sib9_dayLightSavingTime"
+#define GNB_CONFIG_STRING_SIB9_LEAPSECONDS        "sib9_leapSeconds"
+#define GNB_CONFIG_STRING_SIB9_LOCALTIMEOFFSET    "sib9_localTimeOffset"
+
+#define GNBSIB9PARAMS_DESC {                                                                  \
+  /* optname     helpstr     paramflags     XXXptr    def val     type      numelt */         \
+  {GNB_CONFIG_STRING_SIB9_DAYLIGHTSAVINGTIME,                                                 \
+    "SIB9 dayLightSavingTime (0..3, -1=omit)", 0, .iptr=NULL, .defintval=-1, TYPE_INT, 0,     \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {-1, 3}}}},                    \
+  {GNB_CONFIG_STRING_SIB9_LEAPSECONDS,                                                        \
+    "SIB9 leapSeconds (-127..128, -128=omit)", 0, .iptr=NULL, .defintval=-128, TYPE_INT, 0,   \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {-128, 128}}}},                \
+  {GNB_CONFIG_STRING_SIB9_LOCALTIMEOFFSET,                                                    \
+    "SIB9 localTimeOffset (-63..64, -64=omit)", 0, .iptr=NULL, .defintval=-64, TYPE_INT, 0,   \
+    .chkPptr = &(checkedparam_t){.s2 = {config_check_intrange, {-64, 64}}}},                  \
+}
+
+/* clang-format on */
+
 /* PLMN ID configuration */
 
 #define GNB_CONFIG_STRING_PLMN_LIST                     "plmn_list"

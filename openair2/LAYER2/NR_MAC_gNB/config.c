@@ -21,6 +21,7 @@
 #include "NR_BCCH-BCH-Message.h"
 #include "NR_ServingCellConfigCommon.h"
 #include "NR_MIB.h"
+#include "NR_SIB9.h"
 #include "SCHED_NR/phy_frame_config_nr.h"
 #include "T.h"
 #include "asn_internal.h"
@@ -1135,6 +1136,21 @@ bool nr_mac_configure_other_sib(nr_cell_sched_t *cell, int num_cu_sib, const f1a
           break;
         }
         type->choice.sib4 = sib4;
+        add_sib_to_systeminformation(sysInfo, type);
+        break;
+      }
+      case NR_SIB_9: {
+        struct NR_SystemInformation_IEs__sib_TypeAndInfo__Member *type = calloc_or_fail(1, sizeof(*type));
+        type->present = NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib9;
+        NR_SIB9_t *sib9 = NULL;
+        asn_dec_rval_t dec_rval = uper_decode(NULL, &asn_DEF_NR_SIB9, (void **)&sib9, container->buf, container->len, 0, 0);
+        if (dec_rval.code != RC_OK) {
+          LOG_E(NR_MAC, "cannot decode SIB%d from CU\n", config_sibs[i]);
+          ASN_STRUCT_FREE(asn_DEF_NR_SIB9, sib9);
+          free(type);
+          break;
+        }
+        type->choice.sib9 = sib9;
         add_sib_to_systeminformation(sysInfo, type);
         break;
       }

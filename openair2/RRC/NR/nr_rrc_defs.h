@@ -653,6 +653,16 @@ typedef struct rrc_xn_candidate_s {
 
 int rrc_xn_candidate_cmp(struct rrc_xn_candidate_s *a, struct rrc_xn_candidate_s *b);
 
+/** SIB9 configuration for time information broadcast (TS 38.331 SIB9). */
+typedef struct sib9_config_s {
+  /* dayLightSavingTime (0..3) */
+  int dayLightSavingTime;
+  /* leapSeconds (-127..128) */
+  int leapSeconds;
+  /* localTimeOffset(-63..64) */
+  int localTimeOffset;
+} sib9_config_t;
+
 //---NR---(completely change)---------------------
 typedef struct gNB_RRC_INST_s {
 
@@ -668,6 +678,8 @@ typedef struct gNB_RRC_INST_s {
   seq_arr_t *SIBs;
   // SIB2 configuration for cell reselection parameters
   sib2_config_t sib2_config;
+  // SIB9 configuration for time information
+  sib9_config_t sib9_config;
 
   // gNB N3 GTPU instance
   instance_t e1_inst;

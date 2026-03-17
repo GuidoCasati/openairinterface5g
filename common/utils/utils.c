@@ -9,6 +9,7 @@
 #include <unistd.h>
 #include <sched.h>
 #include <errno.h>
+#include <time.h>
 #include "utils.h"
 
 /****************************************************************************
@@ -155,4 +156,39 @@ int read_version(const char *version, uint8_t *major, uint8_t *minor, uint8_t *p
   if (ret == EOF)
     return 0;
   return ret; // ret has number of items matched
+}
+
+/** @briefUTC time in 10ms units since 1900-01-01 (SIB9 timeInfoUTC).
+ * @return 0 on failure (clock_gettime error). */
+uint64_t oai_utc_10ms(void)
+{
+  struct timespec ts;
+  if (clock_gettime(CLOCK_REALTIME, &ts) != 0)
+    return 0;
+
+  /* SIB9 timeInfoUTC epoch is 1900-01-01 00:00:00 (UTC), while CLOCK_REALTIME is Unix time.
+   * 2208988800 = seconds between 1900-01-01 and 1970-01-01. */
+  const uint64_t seconds_1900_to_1970 = 2208988800ULL;
+  /* Convert Unix time (sec + nsec) to 10ms units:
+   * 1s = 100 * 10ms, 10ms = 10,000,000ns. */
+  const uint64_t unix_10ms = ts.tv_sec * 100ULL + ts.tv_nsec / 10000000ULL;
+  return unix_10ms + seconds_1900_to_1970 * 100ULL;
+}
+
+/** @brief Convert SIB9 timeInfoUTC (10 ms ticks since 1900-01-01 UTC) to Unix seconds.
+ *  @return 0 on success, -1 if out of range or invalid. */
+int oai_utc_10ms_to_unix_time(long utc_10ms, time_t *unix_seconds)
+{
+  DevAssert(unix_seconds);
+
+  if (utc_10ms < 0)
+    return -1;
+
+  const long seconds_1900_to_1970 = 2208988800L;
+  const long total_seconds_1900 = utc_10ms / 100L;
+  if (total_seconds_1900 < seconds_1900_to_1970)
+    return -1;
+
+  *unix_seconds = total_seconds_1900 - seconds_1900_to_1970;
+  return 0;
 }

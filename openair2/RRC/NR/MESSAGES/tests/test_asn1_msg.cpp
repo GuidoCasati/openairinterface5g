@@ -74,6 +74,19 @@ static NR_SIB4_t *encode_and_decode_sib4(NR_SIB4_t *sib4, byte_array_t *ba_out)
   return decoded;
 }
 
+static NR_SIB9_t *encode_and_decode_sib9(const NR_SIB9_t *sib9, byte_array_t *ba_out)
+{
+  *ba_out = do_SIB9_NR(sib9);
+  EXPECT_GT(ba_out->len, 0);
+  EXPECT_NE(ba_out->buf, nullptr);
+
+  NR_SIB9_t *decoded = nullptr;
+  asn_dec_rval_t dec = uper_decode_complete(nullptr, &asn_DEF_NR_SIB9, (void **)&decoded, ba_out->buf, ba_out->len);
+  EXPECT_EQ(dec.code, RC_OK);
+  EXPECT_NE(decoded, nullptr);
+  return decoded;
+}
+
 TEST(nr_asn1, rrc_reject)
 {
   unsigned char buf[1000];
@@ -460,6 +473,64 @@ TEST(nr_asn1, inter_freq_carrier_freq_info_ranges)
   try_encode(sib4, false);
 
   ASN_STRUCT_FREE(asn_DEF_NR_SIB4, sib4);
+}
+
+TEST(nr_asn1, sib9_basic_encode_decode)
+{
+  {
+    NR_SIB9_t *sib9 = (NR_SIB9_t *)calloc_or_fail(1, sizeof(*sib9));
+
+    byte_array_t ba = {};
+    NR_SIB9_t *decoded = encode_and_decode_sib9(sib9, &ba);
+
+    EXPECT_EQ(decoded->timeInfo, nullptr);
+    EXPECT_EQ(decoded->ext1, nullptr);
+
+    ASN_STRUCT_FREE(asn_DEF_NR_SIB9, sib9);
+    ASN_STRUCT_FREE(asn_DEF_NR_SIB9, decoded);
+    free_byte_array(ba);
+  }
+
+  {
+    NR_SIB9_t *sib9 = (NR_SIB9_t *)calloc_or_fail(1, sizeof(*sib9));
+    sib9->timeInfo = (decltype(sib9->timeInfo))calloc_or_fail(1, sizeof(*sib9->timeInfo));
+    asn_long2INTEGER(&sib9->timeInfo->timeInfoUTC, 123456789);
+
+    sib9->timeInfo->dayLightSavingTime = (BIT_STRING_t *)calloc_or_fail(1, sizeof(*sib9->timeInfo->dayLightSavingTime));
+    sib9->timeInfo->dayLightSavingTime->buf = (uint8_t *)calloc_or_fail(1, sizeof(uint8_t));
+    sib9->timeInfo->dayLightSavingTime->size = 1;
+    sib9->timeInfo->dayLightSavingTime->bits_unused = 6;
+    sib9->timeInfo->dayLightSavingTime->buf[0] = 0x80;
+
+    sib9->timeInfo->leapSeconds = (long *)calloc_or_fail(1, sizeof(*sib9->timeInfo->leapSeconds));
+    *sib9->timeInfo->leapSeconds = 18;
+
+    sib9->timeInfo->localTimeOffset = (long *)calloc_or_fail(1, sizeof(*sib9->timeInfo->localTimeOffset));
+    *sib9->timeInfo->localTimeOffset = -4;
+
+    byte_array_t ba = {};
+    NR_SIB9_t *decoded = encode_and_decode_sib9(sib9, &ba);
+
+    ASSERT_NE(decoded->timeInfo, nullptr);
+    long decoded_timeInfoUTC = 0;
+    ASSERT_EQ(asn_INTEGER2long(&decoded->timeInfo->timeInfoUTC, &decoded_timeInfoUTC), 0);
+    EXPECT_EQ(decoded_timeInfoUTC, 123456789);
+
+    ASSERT_NE(decoded->timeInfo->dayLightSavingTime, nullptr);
+    EXPECT_EQ(decoded->timeInfo->dayLightSavingTime->size, 1u);
+    EXPECT_EQ(decoded->timeInfo->dayLightSavingTime->bits_unused, 6);
+    EXPECT_EQ(decoded->timeInfo->dayLightSavingTime->buf[0] & 0xC0, 0x80);
+
+    ASSERT_NE(decoded->timeInfo->leapSeconds, nullptr);
+    EXPECT_EQ(*decoded->timeInfo->leapSeconds, 18);
+
+    ASSERT_NE(decoded->timeInfo->localTimeOffset, nullptr);
+    EXPECT_EQ(*decoded->timeInfo->localTimeOffset, -4);
+
+    ASN_STRUCT_FREE(asn_DEF_NR_SIB9, sib9);
+    ASN_STRUCT_FREE(asn_DEF_NR_SIB9, decoded);
+    free_byte_array(ba);
+  }
 }
 
 int main(int argc, char **argv)

@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <limits.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #include "BIT_STRING.h"
@@ -2591,6 +2592,33 @@ static sib2_config_t fill_sib2_configuration(uint8_t gnb_idx)
   return sib2;
 }
 
+/** @brief Parse and populate SIB9 configuration from config file
+ * @param[in] gnb_idx gNB index
+ * @return populated SIB9 configuration */
+static sib9_config_t fill_sib9_configuration(uint8_t gnb_idx)
+{
+  sib9_config_t sib9 = {0};
+
+  char sib9_path[MAX_OPTNAME_SIZE * 2 + 8];
+  snprintf(sib9_path, sizeof(sib9_path), "%s.[%i].%s", GNB_CONFIG_STRING_GNB_LIST, gnb_idx, GNB_CONFIG_STRING_SIB9_CONFIG);
+
+  GET_PARAMS(SIB9Params, GNBSIB9PARAMS_DESC, sib9_path);
+  const int n_sib9_params = sizeofArray(SIB9Params);
+
+  sib9.dayLightSavingTime = *gpd(SIB9Params, n_sib9_params, GNB_CONFIG_STRING_SIB9_DAYLIGHTSAVINGTIME)->iptr;
+  sib9.leapSeconds = *gpd(SIB9Params, n_sib9_params, GNB_CONFIG_STRING_SIB9_LEAPSECONDS)->iptr;
+  sib9.localTimeOffset = *gpd(SIB9Params, n_sib9_params, GNB_CONFIG_STRING_SIB9_LOCALTIMEOFFSET)->iptr;
+
+  LOG_I(GNB_APP,
+        "gNB %d SIB9 config: dayLightSavingTime=%d, leapSeconds=%d, localTimeOffset=%d\n",
+        gnb_idx,
+        sib9.dayLightSavingTime,
+        sib9.leapSeconds,
+        sib9.localTimeOffset);
+
+  return sib9;
+}
+
 /**
  * @brief Allocates and initializes RRC instances
  *        Currently assuming 1 instance
@@ -2684,6 +2712,8 @@ gNB_RRC_INST *RCconfig_NRRRC()
 
     /* Load SIB2 configuration */
     rrc->sib2_config = fill_sib2_configuration(i);
+    /* Load SIB9 configuration */
+    rrc->sib9_config = fill_sib9_configuration(i);
   }//End if (num_gnbs>0)
 
   if (!NODE_IS_DU(rrc->node_type))

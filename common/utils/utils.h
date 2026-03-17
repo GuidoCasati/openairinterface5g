@@ -15,6 +15,7 @@ extern "C" {
 #include <string.h>
 #include <malloc.h>
 #include <sys/types.h>
+#include <time.h>
 #include <common/utils/assertions.h>
 
 #ifdef MALLOC_TRACE
@@ -165,6 +166,10 @@ char *itoa(int i);
 #define STRINGIFY(S) #S
 #define TO_STRING(S) STRINGIFY(S)
 int read_version(const char *version, uint8_t *major, uint8_t *minor, uint8_t *patch);
+
+uint64_t oai_utc_10ms(void);
+
+int oai_utc_10ms_to_unix_time(long utc_10ms, time_t *unix_seconds);
 
 #define findInList(keY, result, list, element_type) {\
     int i;\

@@ -9,6 +9,7 @@
 #define RRC_UE
 #define RRC_UE_C
 
+#include <time.h>
 #include "LTE_MeasObjectToAddMod.h"
 #include "NR_DL-DCCH-Message.h"        //asn_DEF_NR_DL_DCCH_Message
 #include "NR_DL-CCCH-Message.h"        //asn_DEF_NR_DL_CCCH_Message
@@ -20,6 +21,7 @@
 #include "NR_RRCReconfiguration.h"
 #include "NR_MeasConfig.h"
 #include "NR_UL-DCCH-Message.h"
+#include "NR_SIB9.h"
 #include "uper_encoder.h"
 #include "uper_decoder.h"
 
@@ -40,6 +42,7 @@
 #include "common/utils/LOG/log.h"
 #include "conversions.h"
 #include "common/utils/ds/byte_array.h"
+#include "common/utils/utils.h"
 
 #ifndef CELLULAR
   #include "RRC/NR/MESSAGES/asn1_msg.h"
@@ -287,6 +290,47 @@ static void nr_rrc_process_ntnconfig(NR_UE_RRC_INST_t *rrc, NR_UE_RRC_SI_INFO *S
     nr_timer_start(&SI_info->SInfo_r17.sib19_timer);
 }
 
+static void log_sib9(const NR_SIB9_t *sib9)
+{
+  DevAssert(sib9);
+  if (!sib9->timeInfo) {
+    LOG_I(NR_RRC, "SIB9: timeInfo absent (optional)\n");
+    return;
+  }
+
+  time_t sec = 0;
+  long utc_10ms = 0;
+  if (asn_INTEGER2long(&sib9->timeInfo->timeInfoUTC, &utc_10ms) == 0
+      && oai_utc_10ms_to_unix_time(utc_10ms, &sec) == 0) {
+    struct tm tm_utc = {0};
+    char utc_date[32];
+    gmtime_r(&sec, &tm_utc);
+    strftime(utc_date, sizeof(utc_date), "%Y-%m-%d %H:%M:%S", &tm_utc);
+    LOG_I(NR_RRC, "SIB9 timeInfoUTC: unixTime=%ld (%s UTC)\n", sec, utc_date);
+  } else
+    LOG_E(NR_RRC, "SIB9: invalid or out-of-range timeInfoUTC\n");
+
+  BIT_STRING_t *dst = sib9->timeInfo->dayLightSavingTime;
+  if (dst && dst->buf && dst->size > 0) {
+    unsigned v = (dst->buf[0] >> 6) & 3u;
+    LOG_I(NR_RRC, "SIB9: daylightSavingTime=%u\n", v);
+  }
+
+  if (sib9->timeInfo->leapSeconds)
+    LOG_I(NR_RRC, "SIB9: leapSeconds=%ld\n", *sib9->timeInfo->leapSeconds);
+
+  if (sib9->timeInfo->localTimeOffset) {
+    long q = *sib9->timeInfo->localTimeOffset;
+    long offset_min = q * 15L;
+    time_t lto_sec = sec + offset_min * 60L;
+    struct tm tm_lto = {0};
+    char lto_date[32];
+    gmtime_r(&lto_sec, &tm_lto);
+    strftime(lto_date, sizeof(lto_date), "%Y-%m-%d %H:%M:%S", &tm_lto);
+    LOG_I(NR_RRC, "SIB9: localTimeOffset=%ld (%ld min) - %s\n", q, offset_min, lto_date);
+  }
+}
+
 static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si, NR_UE_RRC_INST_t *rrc, int hfn, int frame)
 {
   if (si->criticalExtensions.present != NR_SystemInformation__criticalExtensions_PR_systemInformation) {
@@ -329,6 +373,7 @@ static void nr_decode_SI(NR_UE_RRC_SI_INFO *SI_info, NR_SystemInformation_t *si,
         nr_timer_start(&SI_info->sib8_timer);
         break;
       case NR_SystemInformation_IEs__sib_TypeAndInfo__Member_PR_sib9:
+        log_sib9(typeandinfo->choice.sib9);
         SI_info->sib9_validity = true;
         nr_timer_start(&SI_info->sib9_timer);
         break;

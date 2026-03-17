@@ -7,6 +7,7 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "F1AP_CauseMisc.h"
 #include "F1AP_CauseProtocol.h"
 #include "F1AP_CauseRadioNetwork.h"
@@ -26,6 +27,7 @@
 #include "NR_SIB2.h"
 #include "NR_SIB3.h"
 #include "NR_SIB4.h"
+#include "NR_SIB9.h"
 #include "NR_Q-OffsetRange.h"
 #include "NR_asn_constant.h"
 #include "openair2/RRC/NR/MESSAGES/asn1_msg.h"
@@ -42,6 +44,14 @@
 #include "common/utils/oai_asn1.h"
 #include "utils.h"
 #include "xer_encoder.h"
+
+#define SIB9_TIMEINFOUTC_MAX_10MS 549755813887ULL
+#define SIB9_DAYLIGHT_SAVING_TIME_OMIT -1
+#define SIB9_LEAP_SECONDS_OMIT -128
+#define SIB9_LOCAL_TIME_OFFSET_OMIT -64
+#define SIB9_LOCAL_TIME_OFFSET_MIN -63
+#define SIB9_LOCAL_TIME_OFFSET_MAX 64
+#define SIB9_LOCAL_TIME_OFFSET_GRANULARITY_SEC 900
 
 static int get_dl_band(const f1ap_served_cell_info_t *cell_info)
 {
@@ -60,6 +70,99 @@ NR_SSB_MTC_t *get_ssb_mtc(const NR_MeasurementTimingConfiguration_t *mtc)
   NR_SSB_MTC_t *ssb_mtc = calloc(1, sizeof(*ssb_mtc));
   *ssb_mtc = mtlist->list.array[0]->frequencyAndTiming->ssb_MeasurementTimingConfiguration;
   return ssb_mtc;
+}
+
+/** @brief Derive SIB9 localTimeOffset (quarter-hours from UTC).
+ * @return Value in range or -64 if derivation fails
+ * @note TS 38.331 uses local time = UTC + N*15 minutes.
+ *       We convert the same instant as local and UTC calendars with `mktime()`;
+ *       their difference gives the UTC offset in seconds. */
+static int derive_sib9_local_offset_q15(void)
+{
+  const time_t time_error = -1;
+  time_t now = time(NULL);
+  if (now == time_error) {
+    LOG_W(NR_RRC, "SIB9 fallback localTimeOffset derivation failed (time/localtime), omitting\n");
+    return SIB9_LOCAL_TIME_OFFSET_OMIT;
+  }
+
+  /* Get the same instant as local and UTC calendars. */
+  struct tm local_tm = {0};
+  struct tm gmt_tm = {0};
+  if (localtime_r(&now, &local_tm) == NULL || gmtime_r(&now, &gmt_tm) == NULL) {
+    LOG_W(NR_RRC, "SIB9 fallback localTimeOffset derivation failed (time/localtime), omitting\n");
+    return SIB9_LOCAL_TIME_OFFSET_OMIT;
+  }
+
+  /* Convert both calendars to epoch seconds (mktime() treats input as local time) */
+  time_t local_sec = mktime(&local_tm);
+  time_t gmt_sec_as_local = mktime(&gmt_tm);
+  if (local_sec == time_error || gmt_sec_as_local == time_error) {
+    LOG_W(NR_RRC, "SIB9 fallback localTimeOffset derivation failed (gmtime/mktime), omitting\n");
+    return SIB9_LOCAL_TIME_OFFSET_OMIT;
+  }
+
+  /* Offset from UTC in seconds (east positive, west negative). */
+  time_t offset_sec = local_sec - gmt_sec_as_local;
+
+  /* SIB9 localTimeOffset must be encoded in 15-minute steps. */
+  if (offset_sec % SIB9_LOCAL_TIME_OFFSET_GRANULARITY_SEC != 0) {
+    LOG_W(NR_RRC, "SIB9 fallback localTimeOffset not 15-min aligned (%ld s), omitting\n", offset_sec);
+    return SIB9_LOCAL_TIME_OFFSET_OMIT;
+  }
+  time_t offset_q15 = offset_sec / SIB9_LOCAL_TIME_OFFSET_GRANULARITY_SEC;
+  if (offset_q15 < SIB9_LOCAL_TIME_OFFSET_MIN || offset_q15 > SIB9_LOCAL_TIME_OFFSET_MAX) {
+    LOG_W(NR_RRC, "SIB9 fallback localTimeOffset out of ASN.1 range: %ld\n", offset_q15);
+    return SIB9_LOCAL_TIME_OFFSET_OMIT;
+  }
+
+  return offset_q15;
+}
+
+static NR_SIB9_t *get_sib9_from_cfg(const sib9_config_t *cfg)
+{
+  DevAssert(cfg);
+  NR_SIB9_t *sib9 = calloc_or_fail(1, sizeof(*sib9));
+
+  /* timeInfo (mandatory) */
+  sib9->timeInfo = calloc_or_fail(1, sizeof(*sib9->timeInfo));
+  uint64_t utc_10ms = oai_utc_10ms();
+  AssertFatal(utc_10ms <= SIB9_TIMEINFOUTC_MAX_10MS, "SIB9 timeInfoUTC out of ASN.1 range: %lu\n", utc_10ms);
+  asn_long2INTEGER(&sib9->timeInfo->timeInfoUTC, utc_10ms);
+
+  /* dayLightSavingTime (optional): the first/leftmost bit carries b2 and
+   * the second bit carries b1 of octet 3 of the TS 24.008 "Daylight Saving Time"
+   * IE value part */
+  int day_light_saving_time = cfg->dayLightSavingTime;
+  if (day_light_saving_time != SIB9_DAYLIGHT_SAVING_TIME_OMIT) {
+    BIT_STRING_t *dst = calloc_or_fail(1, sizeof(*dst));
+    dst->buf = calloc_or_fail(1, sizeof(*dst->buf));
+    dst->size = 1;
+    dst->bits_unused = 6;
+    dst->buf[0] = (day_light_saving_time & 0x3) << 6;
+    sib9->timeInfo->dayLightSavingTime = dst;
+  }
+
+  /* leapSeconds (optional): GPS time - leapSeconds = UTC time */
+  if (cfg->leapSeconds != SIB9_LEAP_SECONDS_OMIT) {
+    sib9->timeInfo->leapSeconds = calloc_or_fail(1, sizeof(*sib9->timeInfo->leapSeconds));
+    *sib9->timeInfo->leapSeconds = cfg->leapSeconds;
+  }
+
+  /* localTimeOffset (optional but always present) */
+  int local_time_offset = cfg->localTimeOffset;
+  if (local_time_offset == SIB9_LOCAL_TIME_OFFSET_OMIT) {
+    /* Derive local offset fallback from current time. */
+    local_time_offset = derive_sib9_local_offset_q15();
+    if (local_time_offset == SIB9_LOCAL_TIME_OFFSET_OMIT) {
+      LOG_W(NR_RRC, "SIB9 localTimeOffset fallback derivation failed, omitting\n");
+      return sib9;
+    }
+  }
+  sib9->timeInfo->localTimeOffset = calloc_or_fail(1, sizeof(*sib9->timeInfo->localTimeOffset));
+  *sib9->timeInfo->localTimeOffset = local_time_offset;
+
+  return sib9;
 }
 
 /** @brief Map config q_Hyst (dB: 0,1,2,3,4,5,6,8,10..24) to ASN.1 q-Hyst enum index (0..15).
@@ -841,6 +944,19 @@ void rrc_gNB_process_f1_setup_req(f1ap_setup_req_t *req, sctp_assoc_t assoc_id)
             add_si_msg(&cell, sib->SIB_type, &enc);
             free_byte_array(enc);
             LOG_I(NR_RRC, "DU %ld: added SIB4 to F1 Setup Response (cell %ld)\n", du->gNB_DU_id, new->info.cell_id);
+          } break;
+          case NR_SIB_9: {
+            NR_SIB9_t *sib9 = get_sib9_from_cfg(&rrc->sib9_config);
+            byte_array_t enc = do_SIB9_NR(sib9);
+            ASN_STRUCT_FREE(asn_DEF_NR_SIB9, sib9);
+            if (!enc.buf || enc.len == 0) {
+              free_byte_array(enc);
+              LOG_E(NR_RRC, "SIB9 encoding failed\n");
+              break;
+            }
+            add_si_msg(&cell, sib->SIB_type, &enc);
+            free_byte_array(enc);
+            LOG_I(NR_RRC, "DU %ld: added SIB9 to F1 Setup Response (cell %ld)\n", du->gNB_DU_id, new->info.cell_id);
           } break;
           default:
             AssertFatal(false, "SIB%d not handled yet\n", sib->SIB_type);
