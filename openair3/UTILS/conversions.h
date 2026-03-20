@@ -7,50 +7,13 @@
 #ifndef CONVERSIONS_H_
 #define CONVERSIONS_H_
 
-/* Endianness conversions for 16 and 32 bits integers from host to network order */
-#if (BYTE_ORDER == LITTLE_ENDIAN)
-# define hton_int32(x)   \
-    (((x & 0x000000FF) << 24) | ((x & 0x0000FF00) << 8) |  \
-    ((x & 0x00FF0000) >> 8) | ((x & 0xFF000000) >> 24))
-
-# define hton_int16(x)   \
-    ((((x) & 0x00FF) << 8) | (((x) & 0xFF00) >> 8))
-
-# define ntoh_int32_buf(bUF)        \
+/* Big-endian integer decode from a byte buffer */
+#define ntoh_int32_buf(bUF) \
     ((uint32_t)(*((uint8_t*)bUF)) << 24) | ((*((uint8_t*)bUF + 1)) << 16) | ((*((uint8_t*)bUF + 2)) << 8)   \
   | (*((uint8_t*)bUF + 3))
-#else
-# define hton_int32(x) (x)
-# define hton_int16(x) (x)
-#endif
 
 #define ntoh_int24_buf(bUF) \
   ((*(uint8_t*)bUF << 16) | ((*((uint8_t*)bUF + 1)) << 8) | (*((uint8_t*)bUF + 2)))
-
-#define ntoh_int16_buf(bUF) \
-  ((*((uint8_t*)bUF) << 8) | (*((uint8_t*)bUF + 1)))
-
-#define IN_ADDR_TO_BUFFER(X,bUFF) INT32_TO_BUFFER((X).s_addr,(char*)bUFF)
-
-#define IN6_ADDR_TO_BUFFER(X,bUFF)                     \
-    do {                                               \
-        ((uint8_t*)(bUFF))[0]  = (X).s6_addr[0];  \
-        ((uint8_t*)(bUFF))[1]  = (X).s6_addr[1];  \
-        ((uint8_t*)(bUFF))[2]  = (X).s6_addr[2];  \
-        ((uint8_t*)(bUFF))[3]  = (X).s6_addr[3];  \
-        ((uint8_t*)(bUFF))[4]  = (X).s6_addr[4];  \
-        ((uint8_t*)(bUFF))[5]  = (X).s6_addr[5];  \
-        ((uint8_t*)(bUFF))[6]  = (X).s6_addr[6];  \
-        ((uint8_t*)(bUFF))[7]  = (X).s6_addr[7];  \
-        ((uint8_t*)(bUFF))[8]  = (X).s6_addr[8];  \
-        ((uint8_t*)(bUFF))[9]  = (X).s6_addr[9];  \
-        ((uint8_t*)(bUFF))[10] = (X).s6_addr[10]; \
-        ((uint8_t*)(bUFF))[11] = (X).s6_addr[11]; \
-        ((uint8_t*)(bUFF))[12] = (X).s6_addr[12]; \
-        ((uint8_t*)(bUFF))[13] = (X).s6_addr[13]; \
-        ((uint8_t*)(bUFF))[14] = (X).s6_addr[14]; \
-        ((uint8_t*)(bUFF))[15] = (X).s6_addr[15]; \
-    } while(0)
 
 #define BUFFER_TO_INT8(buf, x) (x = ((buf)[0]))
 
@@ -148,13 +111,6 @@ do {                                            \
     INT24_TO_BUFFER(x, ((aSN)->buf));           \
     (aSN)->size = 3;                            \
 } while(0)
-
-#define INT24_TO_BIT_STRING(x, aSN) \
-do {                                \
-    INT24_TO_OCTET_STRING(x, aSN);  \
-    (aSN)->bits_unused = 0;         \
-} while(0)
-
 
 #define INT8_TO_OCTET_STRING(x, aSN)            \
 do {                                            \
@@ -334,53 +290,6 @@ do {                                                             \
         ((((tBCDsTRING)->buf[2]) & 0x0f) * 10);                  \
 } while(0)
 
-#define TBCD_TO_PLMN_T(tBCDsTRING, pLMN)                            \
-do {                                                                \
-    DevAssert((tBCDsTRING)->size == 3);                             \
-    (pLMN)->MCCdigit2 = (((tBCDsTRING)->buf[0] & 0xf0) >> 4);       \
-    (pLMN)->MCCdigit3 = ((tBCDsTRING)->buf[0] & 0x0f);              \
-    (pLMN)->MCCdigit1 = (tBCDsTRING)->buf[1] & 0x0f;                \
-    (pLMN)->MNCdigit3 = (((tBCDsTRING)->buf[1] & 0xf0) >> 4) == 0xF \
-    ? 0 : (((tBCDsTRING)->buf[1] & 0xf0) >> 4);       \
-    (pLMN)->MNCdigit2 = (((tBCDsTRING)->buf[2] & 0xf0) >> 4);       \
-    (pLMN)->MNCdigit1 = ((tBCDsTRING)->buf[2] & 0x0f);              \
-} while(0)
-
-#define PLMN_T_TO_TBCD(pLMN, tBCDsTRING, mNClENGTH)                 \
-do {                                                                \
-    tBCDsTRING[0] = (pLMN.MCCdigit2 << 4) | pLMN.MCCdigit1;         \
-    /* ambiguous (think about len 2) */                             \
-    if (mNClENGTH == 2) {                                      \
-        tBCDsTRING[1] = (0x0F << 4) | pLMN.MCCdigit3;               \
-        tBCDsTRING[2] = (pLMN.MNCdigit2 << 4) | pLMN.MNCdigit1;     \
-    } else {                                                        \
-        tBCDsTRING[1] = (pLMN.MNCdigit3 << 4) | pLMN.MCCdigit3;     \
-        tBCDsTRING[2] = (pLMN.MNCdigit2 << 4) | pLMN.MNCdigit1;     \
-    }                                                               \
-} while(0)
-
-#define PLMN_T_TO_MCC_MNC(pLMN, mCC, mNC, mNCdIGITlENGTH)               \
-do {                                                                    \
-    mCC = pLMN.MCCdigit3 * 100 + pLMN.MCCdigit2 * 10 + pLMN.MCCdigit1;  \
-    mNCdIGITlENGTH = (pLMN.MNCdigit3 == 0xF ? 2 : 3);                   \
-    mNC = (mNCdIGITlENGTH == 2 ? 0 : pLMN.MNCdigit3 * 100)              \
-          + pLMN.MNCdigit2 * 10 + pLMN.MNCdigit1;                       \
-} while(0)
-
-
-/* TS 38.473 v15.2.1 section 9.3.1.32:
- * C RNTI is BIT_STRING(16)
- */
-#define C_RNTI_TO_BIT_STRING(mACRO, bITsTRING)          \
-do {                                                    \
-    (bITsTRING)->buf = calloc(2, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = (mACRO) >> 8;                 \
-    (bITsTRING)->buf[1] = ((mACRO) & 0x0ff);            \
-    (bITsTRING)->size = 2;                              \
-    (bITsTRING)->bits_unused = 0;                       \
-} while(0)
-
-
 /* TS 38.473 v15.2.1 section 9.3.2.3:
  * TRANSPORT LAYER ADDRESS for IPv4 is 32bit (TS 38.414)
  */
@@ -429,26 +338,6 @@ do {                                                    \
     (aSN)->buf[0] = 0x00;		  \
     (aSN)->buf[1] = (x) >> 8;        \
     (aSN)->buf[2] = (x);             \
-} while(0)
-
-
-
-/* TS 38.473 v15.2.1 section 9.3.1.55:
- * MaskedIMEISV is BIT_STRING(64)
- */
-#define MaskedIMEISV_TO_BIT_STRING(mACRO, bITsTRING)    \
-do {                                                    \
-    (bITsTRING)->buf = calloc(8, sizeof(uint8_t));      \
-    (bITsTRING)->buf[0] = (mACRO) >> 56 & 0xFF;         \
-    (bITsTRING)->buf[1] = (mACRO) >> 48 & 0xFF;         \
-    (bITsTRING)->buf[2] = (mACRO) >> 40 & 0xFF;         \
-    (bITsTRING)->buf[3] = (mACRO) >> 32 & 0xFF;         \
-    (bITsTRING)->buf[4] = (mACRO) >> 24 & 0xFF;         \
-    (bITsTRING)->buf[5] = (mACRO) >> 16 & 0xFF;         \
-    (bITsTRING)->buf[6] = (mACRO) >> 8 & 0xFF;          \
-    (bITsTRING)->buf[7] = (mACRO) >> 4 & 0xFF;          \
-    (bITsTRING)->size = 8;                              \
-    (bITsTRING)->bits_unused = 0;                       \
 } while(0)
 
 /* TS 36.413 v10.9.0 section 9.2.1.37:
@@ -560,9 +449,6 @@ do {                                                     \
     (uint8_t)(((aDDRESS) & 0x0000ff00) >> 8 ),  \
     (uint8_t)(((aDDRESS) & 0x00ff0000) >> 16),  \
     (uint8_t)(((aDDRESS) & 0xff000000) >> 24)
-
-#define IPV4_ADDR_DISPLAY_8(aDDRESS)            \
-    (aDDRESS)[0], (aDDRESS)[1], (aDDRESS)[2], (aDDRESS)[3]
 
 #define TAC_TO_ASN1 INT16_TO_OCTET_STRING
 #define GTP_TEID_TO_ASN1 INT32_TO_OCTET_STRING
