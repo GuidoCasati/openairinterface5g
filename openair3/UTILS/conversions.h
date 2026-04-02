@@ -206,11 +206,11 @@ do {                                    \
     BUFFER_TO_INT16((aSN)->buf, x);    \
 } while(0)
 
-#define OCTET_STRING_TO_INT24(aSN, x)   \
-do {                                    \
-    DevCheck((aSN)->size == 2 || (aSN)->size == 3, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT24((aSN)->buf, x);    \
-} while(0)
+#define OCTET_STRING_TO_INT24(aSN, x)              \
+  do {                                             \
+    DevCheck((aSN)->size == 3, (aSN)->size, 3, 0); \
+    BUFFER_TO_INT24((aSN)->buf, x);                \
+  } while (0)
 
 #define OCTET_STRING_TO_INT32(aSN, x)   \
 do {                                    \
