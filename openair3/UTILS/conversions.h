@@ -137,23 +137,8 @@ do {                                \
     (aSN)->bits_unused = 2;                          \
   } while (0)
 
-#define ENCRALG_TO_BIT_STRING(encralg, bitstring)    \
-    do {                        \
-    (bitstring)->size=2;                \
-    (bitstring)->bits_unused=0;            \
-    (bitstring)->buf=calloc (2, sizeof (uint8_t));    \
-    (bitstring)->buf[0] = (encralg) >> 8;         \
-    (bitstring)->buf[1] = (encralg);        \
-    }while(0)
-
-#define INTPROTALG_TO_BIT_STRING(intprotalg, bitstring)    \
-do {                                \
-    (bitstring)->size=2;                    \
-    (bitstring)->bits_unused=0;                \
-    (bitstring)->buf=calloc (2, sizeof (uint8_t));        \
-    (bitstring)->buf[0] = (intprotalg) >> 8;         \
-    (bitstring)->buf[1] = (intprotalg);            \
-}while(0)
+#define ENCRALG_TO_BIT_STRING INT16_TO_BIT_STRING
+#define INTPROTALG_TO_BIT_STRING INT16_TO_BIT_STRING
 
 #define AS_KEY_STAR_TO_BIT_STRING(askeystar, bitstring)        \
   do {                                                         \
