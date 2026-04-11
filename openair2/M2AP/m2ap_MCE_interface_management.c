@@ -416,8 +416,8 @@ int MCE_send_MBMS_SCHEDULING_INFORMATION(instance_t instance, /*sctp_assoc_t ass
             			,&member->tmgi.pLMNidentity);
 
 	  	//INT16_TO_OCTET_STRING(0,&imember->tmgi);
-		char buf[4];
-	        INT32_TO_BUFFER(m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].service_id,buf);
+		uint8_t buf[4];
+	        INT32_TO_BUFFER(m2ap_mbms_scheduling_information->mbms_area_config_list[i].pmch_config_list[j].mbms_session_list[k].service_id, buf);
             	//uint8_t TMGI[5] = {4,3,2,1,0};
             	OCTET_STRING_fromBuf(&member->tmgi.serviceID,(const char*)&buf[1],3);
 
