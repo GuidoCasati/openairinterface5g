@@ -330,15 +330,7 @@ do {                                                    \
     (bITsTRING)->bits_unused = 4;                       \
 } while(0)
 
-
-#define NR_FIVEGS_TAC_ID_TO_BIT_STRING(x, aSN)      \
-do {                                                    \
-    (aSN)->buf = calloc(3, sizeof(uint8_t));    \
-    (aSN)->size = 3;              \
-    (aSN)->buf[0] = 0x00;		  \
-    (aSN)->buf[1] = (x) >> 8;        \
-    (aSN)->buf[2] = (x);             \
-} while(0)
+#define NR_FIVEGS_TAC_TO_OCTET_STRING INT24_TO_OCTET_STRING
 
 /* TS 36.413 v10.9.0 section 9.2.1.37:
  * Macro eNB ID:
