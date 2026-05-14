@@ -209,12 +209,6 @@ do {                                    \
     BUFFER_TO_INT32((aSN)->buf, x);    \
 } while(0)
 
-#define OCTET_STRING_TO_UINT32(aSN, x)             \
-  do {                                             \
-    DevCheck((aSN)->size == 4, (aSN)->size, 0, 0); \
-    BUFFER_TO_INT32((aSN)->buf, x);                \
-  } while (0)
-
 #define BIT_STRING_TO_NR_CELL_IDENTITY(aSN, vALUE)                                                                \
   do {                                                                                                            \
     DevCheck((aSN)->bits_unused == 4, (aSN)->bits_unused, 4, 0);                                                  \
