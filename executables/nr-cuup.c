@@ -14,7 +14,9 @@
 #include "openair2/F1AP/f1ap_ids.h"
 #include "openair2/GNB_APP/gnb_config.h"
 #include "nr_pdcp/nr_pdcp_oai_api.h"
+#include "nr_up/nr_up_direct.h"
 #include "common/utils/time_manager/time_manager.h"
+#include "common/utils/utils.h"
 
 RAN_CONTEXT_t RC;
 THREAD_STRUCT thread_struct;
@@ -83,6 +85,15 @@ nfapi_mode_t nfapi_getmode(void)
 ngran_node_t get_node_type()
 {
   return ngran_gNB_CUUP;
+}
+
+/** @brief Stub for when nr_up_direct is not linked
+ * Softmodem links the strong version from nr_up_direct, nr-cuup keeps
+ * this stub for linking PDCP shared lib */
+void nr_up_init_direct(nr_up_if_t *iface)
+{
+  UNUSED(iface);
+  AssertFatal(0, "nr_up_init_direct() reached in nr-cuup\n");
 }
 
 int nr_rlc_data_req(const protocol_ctxt_t *const ctxt_pP,
