@@ -76,7 +76,7 @@ static int ngap_gNB_decode_initiating_message(NGAP_NGAP_PDU_t *pdu) {
     case NGAP_ProcedureCode_id_ErrorIndication:
       res = asn_encode_to_new_buffer(NULL, ATS_CANONICAL_XER, &asn_DEF_NGAP_NGAP_PDU, pdu);
       free(res.buffer);
-      NGAP_INFO("TODO ErrorIndication initiating message\n");
+      NGAP_DEBUG("Error Indication initiating message\n");
       break;
 
     case NGAP_ProcedureCode_id_HandoverResourceAllocation:
