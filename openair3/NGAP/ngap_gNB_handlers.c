@@ -24,6 +24,8 @@
 #include "ngap_gNB_decoder.h"
 #include "ngap_gNB_defs.h"
 #include "ngap_gNB_encoder.h"
+#include "ngap_gNB_error_indication.h"
+#include "ngap_gNB_itti_messaging.h"
 #include "ngap_gNB_nnsf.h"
 #include "ngap_gNB_management_procedures.h"
 #include "ngap_gNB_mobility_management.h"
