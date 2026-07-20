@@ -1404,6 +1404,14 @@ int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t
 
   if (ngap_gNB_decode_pdu(&pdu, data, data_length) < 0) {
     NGAP_ERROR("Failed to decode PDU\n");
+    /* TS 38.413 clause 10.2: EI for transfer syntax error */
+    ngap_error_indication_t ei = {
+        .has_cause = true,
+        .cause.type = NGAP_CAUSE_PROTOCOL,
+        .cause.value = NGAP_CAUSE_PROTOCOL_TRANSFER_SYNTAX_ERROR,
+    };
+    ngap_gNB_send_error_indication(assoc_id, 0, &ei);
+    ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
     return -1;
   }
 
