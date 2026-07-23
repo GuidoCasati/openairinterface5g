@@ -13,9 +13,22 @@
 #include <unistd.h>
 #include "nr_sdap_entity.h"
 #include "common/utils/LOG/log.h"
+#include "intertask_interface.h"
 #include "rlc.h"
 #include "tuntap_if.h"
 #include "system.h"
+
+/** @brief Idle TUN UL (no SDAP entity): tell RRC (RRC stops listeners and forwards to NAS for MO SR) */
+static void nr_sdap_notify_mo_ul_data(ue_id_t ue_id, int pdusession_id)
+{
+  MessageDef *msg = itti_alloc_new_message(TASK_PDCP_UE, ue_id, NAS_MO_UL_DATA_IND);
+  if (msg == NULL) {
+    LOG_E(SDAP, "UE %ld PDU session %d: failed to allocate NAS_MO_UL_DATA_IND\n", ue_id, pdusession_id);
+    return;
+  }
+  LOG_D(SDAP, "UE %ld PDU session %d: MO UL pending -> NAS_MO_UL_DATA_IND to RRC\n", ue_id, pdusession_id);
+  itti_send_msg_to_task(TASK_RRC_NRUE, ue_id, msg);
+}
 
 bool sdap_data_req(protocol_ctxt_t *ctxt_p,
                    const ue_id_t ue_id,
@@ -64,6 +77,17 @@ void sdap_data_ind(int drb_id, int is_gnb, int pdusession_id, ue_id_t ue_id, cha
 
   sdap_entity->rx_entity(sdap_entity, drb_id, is_gnb, pdusession_id, ue_id, buf, size);
 }
+
+static void sdap_tun_idle_listener_arg_free(void *arg)
+{
+  free(arg);
+}
+
+typedef struct sdap_tun_idle_listener_arg_s {
+  int sock;
+  ue_id_t ue_id;
+  int pdu_session_id;
+} sdap_tun_idle_listener_arg_t;
 
 static void *sdap_tun_read_thread(void *arg)
 {
@@ -185,4 +209,61 @@ void start_sdap_tun_gnb_first_ue_default_pdu_session(ue_id_t ue_id, int pdu_sess
   entity->tun.sock = tuntap_alloc(IFF_TUN, ifname);
   tun_config(ifname, "10.0.1.1", NULL);
   nr_sdap_tun_start_reader(entity, &entity->pdusession_thread, "gnb_tun_read_thread");
+}
+
+/** @brief Listen on TUN while idle: notify NAS on first UL, then exit
+ * Drops that SDU, does not forward to SDAP (not SDAP entity yet) */
+static void *sdap_tun_idle_listener(void *arg)
+{
+  sdap_tun_idle_listener_arg_t *a = arg;
+  DevAssert(a != NULL);
+  DevAssert(a->sock >= 0);
+
+  char rx_buf[NL_MAX_PAYLOAD];
+  tuntap_reblock(a->sock);
+  pthread_cleanup_push(sdap_tun_idle_listener_arg_free, a);
+
+  while (1) {
+    int len = read(a->sock, rx_buf, NL_MAX_PAYLOAD);
+    if (len == -1) {
+      if (errno == EINTR)
+        continue;
+      if (errno == EBADF || errno == EINVAL) {
+        LOG_I(SDAP, "Socket closed, exiting idle listener for UE %ld, PDU session %d\n", a->ue_id, a->pdu_session_id);
+        break;
+      }
+      LOG_E(SDAP, "idle listener read() failed: errno %d (%s)\n", errno, strerror(errno));
+      break;
+    }
+    if (len == 0) {
+      LOG_W(SDAP, "TUN socket returned EOF - exiting idle listener\n");
+      break;
+    }
+
+    nr_sdap_notify_mo_ul_data(a->ue_id, a->pdu_session_id);
+    LOG_D(SDAP, "UE %ld PDU session %d: idle UL %d B -> NAS_MO_UL_DATA_IND, exit listener\n", a->ue_id, a->pdu_session_id, len);
+    break;
+  }
+  pthread_cleanup_pop(1);
+  return NULL;
+}
+
+/** @brief Start idle TUN listener for one PSI */
+void nr_sdap_tun_start_idle_listener(ue_id_t ue_id, int pdu_session_id, int sock, pthread_t *thread)
+{
+  DevAssert(sock >= 0);
+  DevAssert(thread != NULL);
+
+  if (*thread != 0)
+    return;
+
+  char name[64];
+  snprintf(name, sizeof(name), "ue_tun_idle_%ld_p%d", ue_id, pdu_session_id);
+
+  sdap_tun_idle_listener_arg_t *a = calloc_or_fail(1, sizeof(*a));
+  a->sock = sock;
+  a->ue_id = ue_id;
+  a->pdu_session_id = pdu_session_id;
+  threadCreate(thread, sdap_tun_idle_listener, a, name, -1, OAI_PRIORITY_RT_LOW);
+  LOG_I(SDAP, "UE %ld PDU session %d: TUN idle listener started\n", ue_id, pdu_session_id);
 }
