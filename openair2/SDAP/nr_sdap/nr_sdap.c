@@ -6,7 +6,6 @@
 #include "assertions.h"
 #include "utils.h"
 #include <errno.h>
-#include <fcntl.h>
 #include <inttypes.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -28,17 +27,6 @@ typedef struct sdap_tun_iface_s {
 } sdap_tun_iface_t;
 
 static sdap_tun_iface_t *sdap_tun_iface_list = NULL;
-
-static void reblock_tun_socket(int fd)
-{
-  int f;
-
-  f = fcntl(fd, F_GETFL, 0);
-  f &= ~(O_NONBLOCK);
-  if (fcntl(fd, F_SETFL, f) == -1) {
-    LOG_E(PDCP, "fcntl(F_SETFL) failed on fd %d: errno %d, %s\n", fd, errno, strerror(errno));
-  }
-}
 
 static void *sdap_tun_read_thread(void *arg);
 
@@ -90,7 +78,7 @@ void nr_sdap_tun_attach(nr_sdap_entity_t *entity)
   if (d < 0)
     LOG_W(SDAP, "dup(tun sock) failed: errno %d %s\n", errno, strerror(errno));
   else
-    reblock_tun_socket(d);
+    tuntap_reblock(d);
   entity->pdusession_sock = d;
   if (d < 0)
     return;
@@ -183,7 +171,7 @@ static void *sdap_tun_read_thread(void *arg)
   char rx_buf[NL_MAX_PAYLOAD];
   int len;
   DevAssert(entity->pdusession_sock >= 0);
-  reblock_tun_socket(entity->pdusession_sock);
+  tuntap_reblock(entity->pdusession_sock);
 
   while (!entity->stop_thread) {
     len = read(entity->pdusession_sock, &rx_buf, NL_MAX_PAYLOAD);
