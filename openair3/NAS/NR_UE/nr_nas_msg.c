@@ -1662,7 +1662,7 @@ static int capture_ipv6_addr(const uint8_t *addr, char *ip, size_t len)
  *        and configure the tun interface
  */
 static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg,
-                                     int instance_id,
+                                     nr_ue_nas_t *nas,
                                      int pdu_session_id,
                                      bool is_default)
 {
@@ -1672,13 +1672,13 @@ static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg
     case PDU_SESSION_TYPE_IPV4: {
       char ip[20];
       capture_ipv4_addr(&addr[0], ip, sizeof(ip));
-      create_ue_ip_if(ip, NULL, instance_id, pdu_session_id, is_default);
+      create_ue_ip_if(ip, NULL, nas->UE_id, pdu_session_id, is_default);
     } break;
 
     case PDU_SESSION_TYPE_IPV6: {
       char ipv6[40];
       capture_ipv6_addr(addr, ipv6, sizeof(ipv6));
-      create_ue_ip_if(NULL, ipv6, instance_id, pdu_session_id, is_default);
+      create_ue_ip_if(NULL, ipv6, nas->UE_id, pdu_session_id, is_default);
     } break;
 
     case PDU_SESSION_TYPE_IPV4V6: {
@@ -1686,7 +1686,7 @@ static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg
       capture_ipv6_addr(addr, ipv6, sizeof(ipv6));
       char ipv4[20];
       capture_ipv4_addr(&addr[IPv6_INTERFACE_ID_LENGTH], ipv4, sizeof(ipv4));
-      create_ue_ip_if(ipv4, ipv6, instance_id, pdu_session_id, is_default);
+      create_ue_ip_if(ipv4, ipv6, nas->UE_id, pdu_session_id, is_default);
     } break;
 
     default:
@@ -1698,7 +1698,7 @@ static void process_pdu_session_addr(pdu_session_establishment_accept_msg_t *msg
 /**
  * @brief Handle PDU Session Establishment Accept and process decoded message
  */
-static void handle_pdu_session_accept(const nr_ue_nas_t *nas, uint8_t *pdu_buffer, uint32_t msg_length, int instance)
+static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uint32_t msg_length)
 {
   pdu_session_establishment_accept_msg_t msg = {0};
   int size = 0;
@@ -1758,14 +1758,14 @@ static void handle_pdu_session_accept(const nr_ue_nas_t *nas, uint8_t *pdu_buffe
   }
 
   // Set QFI before starting UE interface thread to avoid early SDUs using 0-initialized QFI.
-  set_qfi(msg.qos_rules.rule->qfi, sm_header.pdu_session_id, instance);
+  set_qfi(msg.qos_rules.rule->qfi, sm_header.pdu_session_id, nas->UE_id);
 
   // process PDU Session: pass ID -1 to not append PDU ID to interface
   bool is_default = idx == 0;
   if (msg.pdu_type == PDU_SESSION_TYPE_ETHER) {
-    create_ue_eth_if(instance, sm_header.pdu_session_id, is_default);
+    create_ue_eth_if(nas->UE_id, sm_header.pdu_session_id, is_default);
   } else if (msg.pdu_addr_ie.pdu_length) {
-    process_pdu_session_addr(&msg, instance, sm_header.pdu_session_id, is_default);
+    process_pdu_session_addr(&msg, nas, sm_header.pdu_session_id, is_default);
   } else {
     LOG_W(NAS, "Unhandled PDU session type %d, ignoring PDU session ID %d\n", msg.pdu_type, sm_header.pdu_session_id);
   }
@@ -1774,7 +1774,7 @@ static void handle_pdu_session_accept(const nr_ue_nas_t *nas, uint8_t *pdu_buffe
 /**
  * @brief Handle DL NAS Transport and process piggybacked 5GSM messages
  */
-void handleDownlinkNASTransport(const nr_ue_nas_t *nas, uint8_t * pdu_buffer, int pdu_length, int instance)
+void handleDownlinkNASTransport(nr_ue_nas_t *nas, uint8_t *pdu_buffer, int pdu_length)
 {
   if (pdu_length < 17) {
     LOG_E(NAS, "Received DL NAS Transport message too short (%d)\n", pdu_length);
@@ -1783,7 +1783,7 @@ void handleDownlinkNASTransport(const nr_ue_nas_t *nas, uint8_t * pdu_buffer, in
   uint8_t msg_type = *(pdu_buffer + 16);
   if (msg_type == FGS_PDU_SESSION_ESTABLISHMENT_ACC) {
     LOG_A(NAS, "Received PDU Session Establishment Accept in DL NAS Transport\n");
-    handle_pdu_session_accept(nas, pdu_buffer, pdu_length, instance);
+    handle_pdu_session_accept(nas, pdu_buffer, pdu_length);
   } else {
     LOG_E(NAS, "Received unexpected message in DLinformationTransfer %d\n", msg_type);
   }
@@ -2390,7 +2390,7 @@ void *nas_nrue(void *args_p)
         if (msg_type == FGS_REGISTRATION_ACCEPT) {
           handle_registration_accept(nas, ba.buf, ba.len);
         } else if (msg_type == FGS_PDU_SESSION_ESTABLISHMENT_ACC) {
-          handle_pdu_session_accept(nas, ba.buf, ba.len, nas->UE_id);
+          handle_pdu_session_accept(nas, ba.buf, ba.len);
         } else if (msg_type == FGS_SERVICE_ACCEPT) {
           handle_service_accept(nas, &ba);
         }
@@ -2481,7 +2481,7 @@ void *nas_nrue(void *args_p)
             handle_security_mode_command(nas, &initialNasMsg, pdu_buffer, pdu_length);
             break;
           case FGS_DOWNLINK_NAS_TRANSPORT:
-            handleDownlinkNASTransport(nas, pdu_buffer, pdu_length, nas->UE_id);
+            handleDownlinkNASTransport(nas, pdu_buffer, pdu_length);
             break;
           case FGS_REGISTRATION_ACCEPT:
             handle_registration_accept(nas, pdu_buffer, pdu_length);
@@ -2492,7 +2492,7 @@ void *nas_nrue(void *args_p)
             nas->fiveGMM_state = FGS_DEREGISTERED;
             break;
           case FGS_PDU_SESSION_ESTABLISHMENT_ACC:
-            handle_pdu_session_accept(nas, pdu_buffer, pdu_length, nas->UE_id);
+            handle_pdu_session_accept(nas, pdu_buffer, pdu_length);
             break;
           case FGS_PDU_SESSION_ESTABLISHMENT_REJ:
             LOG_E(NAS, "Received PDU Session Establishment reject\n");
