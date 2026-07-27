@@ -47,9 +47,9 @@ int encode_fgs_service_request(uint8_t *buffer, const fgs_service_request_msg_t 
 
   int encoded = 0;
 
-  // ngKSI + Service type (1 octet) (M)
-  *buffer = ((encode_nas_key_set_identifier(&service_request->naskeysetidentifier, IEI_NULL) & 0x0f) << 4)
-            | (service_request->serviceType & 0x0f);
+  // Service type + ngKSI (1 octet) (M)
+  *buffer = ((service_request->serviceType & 0x0f) << 4)
+            | (encode_nas_key_set_identifier(&service_request->naskeysetidentifier, IEI_NULL) & 0x0f);
   encoded++;
   len -= 1;
 
@@ -95,9 +95,9 @@ int decode_fgs_service_request(fgs_service_request_msg_t *sr, const uint8_t *buf
     return -1;
 
   // Service type (1/2 octet) (M)
-  sr->serviceType = *buffer & 0x0f;
+  sr->serviceType = *buffer >> 4;
   // KSI (1/2 octet) (M)
-  if ((decoded_rc = decode_nas_key_set_identifier(&sr->naskeysetidentifier, IEI_NULL, *buffer >> 4)) < 0) {
+  if ((decoded_rc = decode_nas_key_set_identifier(&sr->naskeysetidentifier, IEI_NULL, *buffer & 0x0f)) < 0) {
     return decoded_rc;
   }
   decoded++;

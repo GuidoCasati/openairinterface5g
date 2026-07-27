@@ -118,7 +118,7 @@ static void test_service_request(void)
   memcpy(nas_container_contents->value, container_data, sizeof(container_data));
   nas_container_contents->length = sizeof(container_data);
 
-  uint8_t expected_encoded_data[] = {0x71,
+  uint8_t expected_encoded_data[] = {0x17,
                                      0x00,
                                      0x07,
                                      0xF4,
