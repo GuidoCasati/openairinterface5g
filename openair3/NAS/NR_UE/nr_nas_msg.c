@@ -1052,17 +1052,20 @@ void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas)
   // 5G-S-TMSI
   size += fill_fgstmsi(&mm_msg->fiveg_s_tmsi, nas->guti);
 
-  // PDU session status is a non-cleartext Service Request IE (TS 24.501 8.2.16.3).
-  // Here configured UE PDU sessions are marked active to trigger the NAS container path.
+  /* Optional non-cleartext IEs (TS 24.501 4.4.6, TS 33.501 6.4.6):
+   * - PDU session status (8.2.16.3 / 9.11.3.44) from preserved 5GSM state
+   * - Uplink data status (8.2.16.2 / 9.11.3.57) if MO UL data pending */
   uint8_t pdu_session_status[MAX_NUM_PSI] = {0};
-  bool has_non_cleartext_ies = false;
-  for (int i = 0; i < nas->uicc->n_pdu_sessions; ++i) {
-    const int pdu_id = nas->uicc->pdu_sessions[i].id;
-    if (pdu_id > 0 && pdu_id < MAX_NUM_PSI) {
-      pdu_session_status[pdu_id] = PDU_SESSION_ACTIVE;
-      has_non_cleartext_ies = true;
-    }
+  uint8_t uplink_data_status[MAX_NUM_PSI] = {0};
+  bool has_pdu_session_status = false;
+  bool has_uplink_data_status = false;
+  for (int pdu_id = 1; pdu_id < MAX_NUM_PSI; pdu_id++) {
+    if (nas->psi_status[pdu_id] == PDU_SESSION_INACTIVE)
+      continue;
+    pdu_session_status[pdu_id] = PDU_SESSION_ACTIVE;
+    has_pdu_session_status = true;
   }
+  const bool has_non_cleartext_ies = has_pdu_session_status || has_uplink_data_status;
 
   /* message encoding */
   if (security_protected) {
@@ -1081,12 +1084,22 @@ void generateServiceRequest(as_nas_info_t *initialNasMsg, nr_ue_nas_t *nas)
     if (has_non_cleartext_ies) {
       fgmm_nas_message_plain_t full_sr = plain;
       fgs_service_request_msg_t *full_mm_msg = &full_sr.mm_msg.service_request;
-      full_mm_msg->has_pdu_session_status = true;
-      memcpy(full_mm_msg->pdu_session_status, pdu_session_status, sizeof(full_mm_msg->pdu_session_status));
+      if (has_uplink_data_status) {
+        full_mm_msg->has_uplink_data_status = true;
+        memcpy(full_mm_msg->uplink_data_status, uplink_data_status, sizeof(full_mm_msg->uplink_data_status));
+      }
+      if (has_pdu_session_status) {
+        full_mm_msg->has_pdu_session_status = true;
+        memcpy(full_mm_msg->pdu_session_status, pdu_session_status, sizeof(full_mm_msg->pdu_session_status));
+      }
 
-      const int full_sr_size = plain_sr_size + MIN_PDU_SESSION_CONTENTS_LEN + 2;
-      uint8_t *inner_sr = calloc_or_fail(full_sr_size, sizeof(*inner_sr));
-      const int inner_sr_len = mm_msg_encode(&full_sr, inner_sr, full_sr_size);
+      int inner_buf_size = plain_sr_size;
+      if (has_uplink_data_status)
+        inner_buf_size += MIN_PDU_SESSION_CONTENTS_LEN + 2;
+      if (has_pdu_session_status)
+        inner_buf_size += MIN_PDU_SESSION_CONTENTS_LEN + 2;
+      uint8_t *inner_sr = calloc_or_fail(inner_buf_size, sizeof(*inner_sr));
+      const int inner_sr_len = mm_msg_encode(&full_sr, inner_sr, inner_buf_size);
       if (inner_sr_len <= 0) {
         free(inner_sr);
         AssertFatal(false, "Failed to encode Service Request NAS container payload\n");
@@ -1769,6 +1782,8 @@ static void handle_pdu_session_accept(nr_ue_nas_t *nas, uint8_t *pdu_buffer, uin
   } else {
     LOG_W(NAS, "Unhandled PDU session type %d, ignoring PDU session ID %d\n", msg.pdu_type, sm_header.pdu_session_id);
   }
+  /* Track active PDU session for later PDU session status IE (24.501 8.2.16.3) */
+  nas->psi_status[sm_header.pdu_session_id] = PDU_SESSION_ACTIVE;
 }
 
 /**
@@ -2529,6 +2544,7 @@ void *nas_nrue(void *args_p)
         const bool is_default = true;
         set_qfi(qfi, pdu_session_id, nas->UE_id);
         create_ue_ip_if(ip, NULL, nas->UE_id, pdu_session_id, is_default);
+        nas->psi_status[pdu_session_id] = PDU_SESSION_ACTIVE;
         break;
       }
 
