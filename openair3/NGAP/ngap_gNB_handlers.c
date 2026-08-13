@@ -1430,8 +1430,16 @@ int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t
       break;
   }
 
+  /* TS 38.413: Not comprehended Procedure Code (10.3.4.1), Type of Message (10.3.4.1A) */
   if (pdu.present < NGAP_NGAP_PDU_PR_initiatingMessage || pdu.present > NGAP_NGAP_PDU_PR_unsuccessfulOutcome
     || procedureCode >= (long)(sizeof(ngap_messages_callback) / (3 * sizeof(ngap_message_decoded_callback)))) {
+    NGAP_ERROR("[SCTP %u] Either procedureCode %ld or direction %d exceed expected\n", assoc_id, procedureCode, pdu.present);
+    ngap_error_indication_t ei = {
+        .has_cause = true,
+        .cause.type = NGAP_CAUSE_PROTOCOL,
+        .cause.value = NGAP_CAUSE_PROTOCOL_ABSTRACT_SYNTAX_ERROR_REJECT,
+    };
+    ngap_gNB_send_error_indication(assoc_id, 0, &ei);
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
     return -1;
   }
