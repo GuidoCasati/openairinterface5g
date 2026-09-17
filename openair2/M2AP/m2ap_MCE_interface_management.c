@@ -696,7 +696,10 @@ int MCE_handle_M2_SETUP_REQUEST(instance_t instance, sctp_assoc_t assoc_id, uint
 	    /* eCGI */
 	       //mbms_configuration_item_p->eCGI ... (M2AP_ECGI_t)
 
-	    OCTET_STRING_TO_INT16(&(mbms_configuration_item_p->eCGI.pLMN_Identity),M2AP_SETUP_REQ(message_p).plmn_identity[i]);
+	    PLMNID_TO_MCC_MNC(&mbms_configuration_item_p->eCGI.pLMN_Identity,
+	                      M2AP_SETUP_REQ(message_p).mcc[i],
+	                      M2AP_SETUP_REQ(message_p).mnc[i],
+	                      M2AP_SETUP_REQ(message_p).mnc_digit_length[i]);
 	    //OCTET_STRING_TO_INT16(&(mbms_configuration_item_p->eCGI.eUTRANcellIdentifier),M2AP_SETUP_REQ(message_p).eutran_cell_identifier[i]);
 	    /* mbsfnSynchronisationArea */
 	       //mbms_configuration_item_p->mbsfnSynchronisationArea ... (M2AP_MBSFN_SynchronisationArea_ID_t)
