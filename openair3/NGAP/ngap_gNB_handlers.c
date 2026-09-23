@@ -940,6 +940,13 @@ static int ngap_gNB_handle_paging(sctp_assoc_t assoc_id, uint32_t stream, NGAP_N
    /* Decode NGAP Paging message */
    if (!decode_ng_paging(msg, pdu)) {
      NGAP_ERROR("[SCTP %u] Failed to decode NGAP Paging message\n", assoc_id);
+     /* Paging has no failure message, report via Error Indication (TS 38.413 8.7.5) */
+     ngap_error_indication_t ei = {
+         .has_cause = true,
+         .cause.type = NGAP_CAUSE_PROTOCOL,
+         .cause.value = NGAP_CAUSE_PROTOCOL_SEMANTIC_ERROR,
+     };
+     ngap_gNB_send_error_indication(assoc_id, 0, &ei);
      free_ng_paging(msg);
      itti_free(TASK_NGAP, message_p);
      return -1;
