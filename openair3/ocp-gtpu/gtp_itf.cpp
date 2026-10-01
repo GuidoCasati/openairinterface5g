@@ -3,6 +3,7 @@
  */
 
 #include <map>
+#include <time.h>
 using namespace std;
 
 #ifdef __cplusplus
@@ -22,8 +23,6 @@ extern "C" {
 #include <common/utils/ocp_itti/intertask_interface.h>
 #include "sim.h"
 
-// TODO these dependencies should not exist and be removed
-#include "openair2/LAYER2/nr_rlc/nr_rlc_oai_api.h"
 #include "openair2/LAYER2/RLC/rlc.h"
 
 #include "gtp_itf.h"
@@ -37,6 +36,9 @@ extern "C" {
 /* TS 29.281 clause 8.1: IE Length field is 2 octets */
 #define GTPU_TLV_LENGTH_OCTETS (2)
 #define GTPU_IE_TYPE_OCTETS 1 /* clause 8.1 */
+
+/* DU DDDS refresh while DL continues and DBS changed (TS 38.425 §5.4.2.1) */
+#define GTPU_DDDS_TIMER_MS 20
 
 #pragma pack(1)
 
@@ -124,6 +126,13 @@ typedef struct {
   map<ue_id_t, gtpv1u_bearer_t> bearers;
 } teidData_t;
 
+/** DU DDDS sparsity state (F1-U) */
+typedef struct {
+  bool has_last_report;
+  uint32_t last_desired_buffer_size;
+  struct timespec last_report_time;
+} gtpv1u_ddds_state_t;
+
 typedef struct {
   ue_id_t ue_id;
   /** Incoming TEID mapping key:
@@ -135,8 +144,10 @@ typedef struct {
   gtpCallbackSDAP callBackSDAP;
   gtpv1u_error_indication_cb_fn_t errorIndicationCallBack;
   gtpv1u_ddds_cb_fn_t dlDataDeliveryStatusCallBack;
+  gtpv1u_get_tx_space_cb_fn_t getTxSpaceCallBack;
   /** PDU Session ID (1..255) */
   uint16_t pdusession_id;
+  gtpv1u_ddds_state_t ddds;
 } ueidData_t;
 
 typedef struct {
@@ -473,18 +484,38 @@ void gtpv1uSendDirectWithNRUSeqNum(instance_t instance,
   _gtpv1uSendDirect(instance, ue_id, bearer_id, NO_QFI, buf, len, false, false, nru_seqnum, pdcp_sn, report_polling);
 }
 
-static void fillDlDeliveryStatusReport(gtpu_extension_header_t *ext,
-                                       uint32_t RLC_buffer_availability,
-                                       uint32_t nr_pdcp_pdu_sn)
+static void fillDlDeliveryStatusReport(gtpu_extension_header_t *ext, uint32_t RLC_buffer_availability)
 {
   *ext = {
     .type = GTPU_EXT_DL_DATA_DELIVERY_STATUS,
     .dl_data_delivery_status = {
       .desired_buffer_size = RLC_buffer_availability,
-      .highest_transmitted_nr_pdcp_sn_present = true,
-      .highest_transmitted_nr_pdcp_sn = nr_pdcp_pdu_sn,
     }
   };
+}
+
+/** @brief Whether to send DDDS because RLC TX space hit or left zero.
+ * CU treats Desired Buffer Size 0 as "stop DL" and a later non-zero as
+ * "may send again" (TS 38.425 §5.4.2.1). This helper only detects that
+ * 0 to non-zero transition (or the first time we see space already 0). */
+static bool gtpv1u_ddds_zero_dbs_trigger(const gtpv1u_ddds_state_t *st, uint32_t space)
+{
+  const bool now_empty = space == 0;
+  if (!st->has_last_report)
+    return now_empty;
+  const bool was_empty = st->last_desired_buffer_size == 0;
+  return now_empty != was_empty;
+}
+
+/** DU timer while DL is still arriving: refresh if DBS changed (skip unchanged). */
+static bool gtpv1u_ddds_timer_trigger(const gtpv1u_ddds_state_t *st, uint32_t space, const struct timespec *now)
+{
+  if (!st->has_last_report)
+    return false;
+  if (space == st->last_desired_buffer_size)
+    return false;
+  const int64_t ms = (now->tv_sec - st->last_report_time.tv_sec) * 1000 + (now->tv_nsec - st->last_report_time.tv_nsec) / 1000000;
+  return ms >= GTPU_DDDS_TIMER_MS;
 }
 
 /** @brief GTP-U header length: mandatory octets plus optional E/S/PN fields when present
@@ -712,7 +743,8 @@ teid_t newGtpuCreateTunnel(instance_t instance,
                            gtpCallback callBack,
                            gtpCallbackSDAP callBackSDAP,
                            gtpv1u_error_indication_cb_fn_t errorIndicationCallBack,
-                           gtpv1u_ddds_cb_fn_t dlDataDeliveryStatusCallBack)
+                           gtpv1u_ddds_cb_fn_t dlDataDeliveryStatusCallBack,
+                           gtpv1u_get_tx_space_cb_fn_t getTxSpaceCallBack)
 {
   pthread_mutex_lock(&globGtp.gtp_lock);
   getInstRetInt(compatInst(instance));
@@ -737,7 +769,9 @@ teid_t newGtpuCreateTunnel(instance_t instance,
   globGtp.te2ue_mapping[incoming_teid].callBackSDAP = callBackSDAP;
   globGtp.te2ue_mapping[incoming_teid].errorIndicationCallBack = errorIndicationCallBack;
   globGtp.te2ue_mapping[incoming_teid].dlDataDeliveryStatusCallBack = dlDataDeliveryStatusCallBack;
+  globGtp.te2ue_mapping[incoming_teid].getTxSpaceCallBack = getTxSpaceCallBack;
   globGtp.te2ue_mapping[incoming_teid].pdusession_id = (uint8_t)outgoing_bearer_id;
+  globGtp.te2ue_mapping[incoming_teid].ddds = {};
 
   gtpv1u_bearer_t bearer = {
     .sock_fd = (int) compatInst(instance), // avoid warning on narrowing conversion: instance is long, sock_fd is int
@@ -815,6 +849,7 @@ int gtpv1u_create_s1u_tunnel(instance_t instance,
                                       callBack,
                                       NULL,
                                       NULL,
+                                      NULL,
                                       NULL);
     create_tunnel_resp->status = 0;
     create_tunnel_resp->rnti = create_tunnel_req->rnti;
@@ -876,7 +911,8 @@ int gtpv1u_create_ngu_tunnel(const instance_t instance,
                              gtpCallback callBack,
                              gtpCallbackSDAP callBackSDAP,
                              gtpv1u_error_indication_cb_fn_t errorIndicationCallBack,
-                             gtpv1u_ddds_cb_fn_t dlDataDeliveryStatusCallBack)
+                             gtpv1u_ddds_cb_fn_t dlDataDeliveryStatusCallBack,
+                             gtpv1u_get_tx_space_cb_fn_t getTxSpaceCallBack)
 {
   LOG_D(GTPU,
         "[%ld] Create tunnel for UE ID %lu, outgoing TEID 0x%x\n",
@@ -898,7 +934,8 @@ int gtpv1u_create_ngu_tunnel(const instance_t instance,
                                     callBack,
                                     callBackSDAP,
                                     errorIndicationCallBack,
-                                    dlDataDeliveryStatusCallBack);
+                                    dlDataDeliveryStatusCallBack,
+                                    getTxSpaceCallBack);
   /* Fill response */
   create_tunnel_resp->status = 0;
   create_tunnel_resp->ue_id = create_tunnel_req->ue_id;
@@ -1049,6 +1086,42 @@ static gtpv1u_bearer_t create_bearer(int socket, const struct sockaddr_in *addr,
   gtpv1u_bearer_t bearer = {.sock_fd = socket, .teid_outgoing = teid, .seqNum = seq};
   memcpy(&bearer.ip, addr, sizeof(*addr));
   return bearer;
+}
+
+/** @brief Record last DDDS report for sparse empty/resume/timer triggers
+ * @return true if the tunnel was found and updated */
+static bool gtpv1u_ddds_update_last_report(teid_t incoming_teid, uint32_t desired_buffer_size, const struct timespec *now)
+{
+  pthread_mutex_lock(&globGtp.gtp_lock);
+  auto tunnel = globGtp.te2ue_mapping.find(incoming_teid);
+  if (tunnel == globGtp.te2ue_mapping.end()) {
+    pthread_mutex_unlock(&globGtp.gtp_lock);
+    return false;
+  }
+  tunnel->second.ddds.has_last_report = true;
+  tunnel->second.ddds.last_desired_buffer_size = desired_buffer_size;
+  tunnel->second.ddds.last_report_time = *now;
+  pthread_mutex_unlock(&globGtp.gtp_lock);
+  return true;
+}
+
+static void gtpv1u_send_ddds(int h,
+                             const struct sockaddr_in *addr,
+                             teid_t outgoing_teid,
+                             ue_id_t ue_id,
+                             uint16_t rb_id,
+                             uint32_t desired_buffer_size)
+{
+  LOG_D(GTPU,
+        "DL DATA DELIVERY STATUS TX: ue %lx drb %u desired_buffer_size %u teid 0x%x\n",
+        ue_id,
+        rb_id,
+        desired_buffer_size,
+        outgoing_teid);
+  gtpu_extension_header_t ext;
+  fillDlDeliveryStatusReport(&ext, desired_buffer_size);
+  gtpv1u_bearer_t bearer = create_bearer(h, addr, outgoing_teid, 0);
+  gtpv1uCreateAndSendMsg(&bearer, GTP_GPDU, NULL, 0, false, false, &ext, 1);
 }
 
 static int Gtpv1uHandleEchoReq(int h, uint8_t *msgBuf, const struct sockaddr_in *addr)
@@ -1439,7 +1512,7 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
 
   int8_t qfi = -1;
   bool rqi = false;
-  uint32_t NR_PDCP_PDU_SN = 0;
+  bool report_polling = false;
 
   if (msgHdr->E) {
     int next_extension_header_type = msgBuf[offset - 1];
@@ -1488,16 +1561,13 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
               return GTPNOK;
             }
             LOG_D(GTPU,
-                  "DL USER DATA RX: ue %lx drb %u nru_sn %u pdcp_sn %u\n",
+                  "DL USER DATA RX: ue %lx drb %u nru_sn %u pdcp_sn %u report_polling %d\n",
                   uedata.ue_id,
                   uedata.incoming_rb_id,
                   dl_user_data.nru_sequence_number,
-                  dl_user_data.report_delivered ? dl_user_data.nr_pdcp_pdu_sn : 0u);
-            if (dl_user_data.report_delivered) {
-              /* TS 38.425 clause 5.4: store the NR PDCP PDU SN for which a delivery status report
-               * shall be generated when the PDU reaches the lower layers */
-              NR_PDCP_PDU_SN = dl_user_data.nr_pdcp_pdu_sn;
-            }
+                  dl_user_data.report_delivered ? dl_user_data.nr_pdcp_pdu_sn : 0u,
+                  dl_user_data.report_polling);
+            report_polling = dl_user_data.report_polling;
           } else if (PDU_type == NRUP_PDU_DL_DATA_DELIVERY_STATUS) {
             /* TS 38.425 Figure 5.5.2.2-1: NR-UP payload in NR RAN Container (29.281) */
             const int container_len = GTPU_EXT_HDR_CONTENT_LEN(extension_header_length);
@@ -1584,30 +1654,35 @@ static int Gtpv1uHandleGpdu(int h, uint8_t *msgBuf, uint32_t msgBufLen, const st
     }
   }
 
-  /* DU TX: DL DATA DELIVERY STATUS when CU set Report Delivered on DL USER DATA (TS 38.425 clause 5.4).
-   * Note: uses DRB-based RLC state, keep it on non-SDAP path only. SN%5 is a temporary rate limit until
-   * F1 congestion control policy is implemented.*/
-  if (!uedata.callBackSDAP && NR_PDCP_PDU_SN > 0 && NR_PDCP_PDU_SN % 5 == 0) {
-    int rlc_tx_buffer_space = nr_rlc_get_available_tx_space(ctxt.rntiMaybeUEid, rb_id + 3);
-    uint32_t teid = globGtp.te2ue_mapping[ntohl(msgHdr->teid)].outgoing_teid;
-    LOG_D(GTPU,
-          "DL DATA DELIVERY STATUS TX: ue %lx drb %u nr_pdcp_pdu_sn %u desired_buffer_size %u teid 0x%x\n",
-          uedata.ue_id,
-          rb_id,
-          NR_PDCP_PDU_SN,
-          rlc_tx_buffer_space,
-          teid);
-    gtpu_extension_header_t ext;
-    fillDlDeliveryStatusReport(&ext, rlc_tx_buffer_space, NR_PDCP_PDU_SN);
-    gtpv1u_bearer_t bearer = create_bearer(h, addr, teid, 0);
-    gtpv1uCreateAndSendMsg(&bearer,
-                           GTP_GPDU,
-                           NULL,
-                           0,
-                           false,
-                           false,
-                           &ext,
-                           1);
+  /* DU TX: DL DATA DELIVERY STATUS on F1-U DL G-PDU RX (TS 38.425 §5.4).
+   *
+   * Send when:
+   * - Report Polling = 1 (§5.4.1.1 shall), or
+   * - Desired Buffer Size hit/left 0 (§5.4.2.1), or
+   * - DBS changed and GTPU_DDDS_TIMER_MS elapsed (§5.4.2.1 "decides to trigger").
+   *
+   * Report Delivered is not handled here: §5.4.1.1 requires DDDS only after the
+   * indicated NR PDCP PDU SN (and all SNs up to it) are delivered in-sequence
+   * (RLC AM) to the UE. CU keeps report_delivered false today.
+   *
+   * Skip when dlDataDeliveryStatusCallBack is set (CU F1-U). */
+  if (!uedata.callBackSDAP && !uedata.dlDataDeliveryStatusCallBack) {
+    const teid_t incoming_teid = ntohl(msgHdr->teid);
+    uint32_t space = 0;
+    if (uedata.getTxSpaceCallBack != nullptr) {
+      const int tx_buffer_space = uedata.getTxSpaceCallBack(uedata.ue_id, rb_id);
+      if (tx_buffer_space > 0)
+        space = tx_buffer_space;
+    }
+
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const bool send_ddds =
+        report_polling || gtpv1u_ddds_zero_dbs_trigger(&uedata.ddds, space) || gtpv1u_ddds_timer_trigger(&uedata.ddds, space, &now);
+
+    if (send_ddds && gtpv1u_ddds_update_last_report(incoming_teid, space, &now)) {
+      gtpv1u_send_ddds(h, addr, uedata.outgoing_teid, uedata.ue_id, rb_id, space);
+    }
   }
 
   LOG_D(GTPU, "[%d] Received a %d bytes packet for: TEID:0x%x\n", h, msgBufLen - offset, ntohl(msgHdr->teid));
