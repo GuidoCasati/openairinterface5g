@@ -72,14 +72,14 @@ PDCP calls nr-up only. The backend is chosen at `nr_up_init_*`:
 | gNB mono | `deliver_pdu_drb` | `nr_up_init_direct` | PDCP DL goes to local RLC (same process) |
 | gNB F1 / CU | `deliver_pdu_drb` | `nr_up_init_f1u` | PDCP DL goes over F1-U GTP to the DU |
 | gNB DU | - | `nr_up_init_du` | no PDCP deliver, only turns off RLC TX-full drop (CU already decided) |
-| UE | `deliver_pdu_drb` | `nr_up_init_ue` | PDCP DL goes to local RLC (UE stack) |
+| UE | `deliver_pdu_drb` | `nr_up_init_ue` | PDCP UL goes to local RLC, same precheck as mono |
 
-## DRB downlink
+## DRB downlink (gNB) / UL (UE)
 
-For each DL SDU on the gNB, PDCP asks nr-up whether the backend or local
-RLC can take more data before assigning a PDCP SN. If nr-up says DROP,
-the SDU is discarded and no SN is consumed. If ALLOW, PDCP builds the PDU
-and hands it to the role backend from the table above.
+For each DRB SDU on the PDCP TX path (gNB DL or UE UL), PDCP asks nr-up
+whether local RLC (or F1) can take more data before assigning a PDCP SN.
+If nr-up says DROP, the SDU is discarded and no SN is consumed. If ALLOW,
+PDCP builds the PDU and hands it to the role backend from the table above.
 
 1. `nr_pdcp_data_req_drb`: entry from upper layers
 2. `nr_up_dl_congestion_precheck`: ALLOW or DROP
@@ -94,6 +94,9 @@ RLC live. Insufficient budget drops (DROP) until a later sync.
 - **Mono** precheck (`nr_up_mono_dl_congestion_precheck`): if last sync is
   older than `NR_UP_MONO_BUDGET_STALE_MS` (20 ms), ALLOW without trusting
   occupancy.
+- **UE** precheck (`nr_up_ue_ul_congestion_precheck`): same local stale-ALLOW
+  policy with `NR_UP_UE_BUDGET_STALE_MS` (20 ms). Budget sync from RLC TX
+  space. RLC `do_drop` is off after `nr_up_init_ue`.
 - **F1** precheck (`nr_up_f1u_dl_congestion_precheck`): on DROP, rate-limited
   empty DL USER DATA with Report Polling (`nr_up_f1u_request_status_poll`)
   so DDDS can refresh.
