@@ -20,8 +20,8 @@
 #include "constr_TYPE.h"
 #include "conversions.h"
 #include "intertask_interface.h"
+#include "aper_decoder.h"
 #include "ngap_common.h"
-#include "ngap_gNB_decoder.h"
 #include "ngap_gNB_defs.h"
 #include "ngap_gNB_encoder.h"
 #include "ngap_gNB_error_indication.h"
@@ -1341,6 +1341,29 @@ const ngap_message_decoded_callback ngap_messages_callback[][3] = {
     {0, 0, 0}, /* SecondaryRATDataUsageReport */
 
 };
+
+/** @brief APER-decode NGAP PDU */
+static int ngap_gNB_decode_pdu(NGAP_NGAP_PDU_t *pdu, const uint8_t *const buffer, const uint32_t length)
+{
+  DevAssert(pdu != NULL);
+  DevAssert(buffer != NULL);
+
+  asn_codec_ctx_t st = {.max_stack_size = 100 * 1000};
+  asn_dec_rval_t dec_ret = aper_decode(&st, &asn_DEF_NGAP_NGAP_PDU, (void **)&pdu, buffer, length, 0, 0);
+
+  if (dec_ret.code != RC_OK) {
+    NGAP_ERROR("Failed to decode pdu\n");
+    return -1;
+  }
+
+  if (LOG_DEBUGFLAG(DEBUG_ASN1)) {
+    LOG_E(NGAP, "----------------- ASN1 DECODER PRINT START----------------- \n");
+    xer_fprint(stdout, &asn_DEF_NGAP_NGAP_PDU, pdu);
+    LOG_E(NGAP, "----------------- ASN1 DECODER PRINT END ----------------- \n");
+  }
+
+  return 0;
+}
 
 int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t *const data, const uint32_t data_length)
 {
