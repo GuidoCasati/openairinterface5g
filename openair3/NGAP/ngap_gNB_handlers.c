@@ -1379,6 +1379,52 @@ const ngap_message_decoded_callback ngap_messages_callback[][3] = {
 
 };
 
+/** @brief Return elementary-procedure criticality for a procedure code
+ * Maps ASN.1 CRITICALITY ignore procedures to NGAP_Criticality_ignore
+ * Maps all other procedure codes to NGAP_Criticality_reject
+ * @return criticality */
+static NGAP_Criticality_t ngap_procedure_criticality(long procedureCode)
+{
+  switch (procedureCode) {
+    case NGAP_ProcedureCode_id_AMFStatusIndication:
+    case NGAP_ProcedureCode_id_CellTrafficTrace:
+    case NGAP_ProcedureCode_id_DeactivateTrace:
+    case NGAP_ProcedureCode_id_DownlinkNASTransport:
+    case NGAP_ProcedureCode_id_DownlinkNonUEAssociatedNRPPaTransport:
+    case NGAP_ProcedureCode_id_DownlinkRANConfigurationTransfer:
+    case NGAP_ProcedureCode_id_DownlinkRANStatusTransfer:
+    case NGAP_ProcedureCode_id_DownlinkUEAssociatedNRPPaTransport:
+    case NGAP_ProcedureCode_id_ErrorIndication:
+    case NGAP_ProcedureCode_id_HandoverNotification:
+    case NGAP_ProcedureCode_id_InitialUEMessage:
+    case NGAP_ProcedureCode_id_LocationReportingControl:
+    case NGAP_ProcedureCode_id_LocationReportingFailureIndication:
+    case NGAP_ProcedureCode_id_LocationReport:
+    case NGAP_ProcedureCode_id_NASNonDeliveryIndication:
+    case NGAP_ProcedureCode_id_OverloadStart:
+    case NGAP_ProcedureCode_id_Paging:
+    case NGAP_ProcedureCode_id_PDUSessionResourceNotify:
+    case NGAP_ProcedureCode_id_PrivateMessage:
+    case NGAP_ProcedureCode_id_PWSFailureIndication:
+    case NGAP_ProcedureCode_id_PWSRestartIndication:
+    case NGAP_ProcedureCode_id_RRCInactiveTransitionReport:
+    case NGAP_ProcedureCode_id_TraceFailureIndication:
+    case NGAP_ProcedureCode_id_TraceStart:
+    case NGAP_ProcedureCode_id_UEContextReleaseRequest:
+    case NGAP_ProcedureCode_id_UERadioCapabilityInfoIndication:
+    case NGAP_ProcedureCode_id_UETNLABindingRelease:
+    case NGAP_ProcedureCode_id_UplinkNASTransport:
+    case NGAP_ProcedureCode_id_UplinkNonUEAssociatedNRPPaTransport:
+    case NGAP_ProcedureCode_id_UplinkRANConfigurationTransfer:
+    case NGAP_ProcedureCode_id_UplinkRANStatusTransfer:
+    case NGAP_ProcedureCode_id_UplinkUEAssociatedNRPPaTransport:
+    case NGAP_ProcedureCode_id_SecondaryRATDataUsageReport:
+      return NGAP_Criticality_ignore;
+    default:
+      return NGAP_Criticality_reject;
+  }
+}
+
 /** @brief APER-decode NGAP PDU */
 static int ngap_gNB_decode_pdu(NGAP_NGAP_PDU_t *pdu, const uint8_t *const buffer, const uint32_t length)
 {
@@ -1451,14 +1497,22 @@ int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t
     return -1;
   }
 
-  /* No handler present.
-   * This can mean not implemented or no procedure for gNB (wrong direction).
-   */
+  /* No handler: treat as unsupported Elementary Procedure (10.3.2) and act on criticality (10.3.4.1) */
   if (ngap_messages_callback[procedureCode][pdu.present - 1] == NULL) {
     NGAP_ERROR("[SCTP %u] No handler for procedureCode %ld in %s\n",
                assoc_id,
                procedureCode,
                ngap_direction2String(pdu.present - 1));
+    NGAP_Criticality_t c = ngap_procedure_criticality(procedureCode);
+    if (c != NGAP_Criticality_ignore) {
+      ngap_error_indication_t ei = {
+          .has_cause = true,
+          .cause.type = NGAP_CAUSE_PROTOCOL,
+          .cause.value = (c == NGAP_Criticality_notify) ? NGAP_CAUSE_PROTOCOL_ABSTRACT_SYNTAX_ERROR_IGNORE
+                                                        : NGAP_CAUSE_PROTOCOL_ABSTRACT_SYNTAX_ERROR_REJECT,
+      };
+      ngap_gNB_send_error_indication(assoc_id, 0, &ei);
+    }
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
     return -1;
   }
