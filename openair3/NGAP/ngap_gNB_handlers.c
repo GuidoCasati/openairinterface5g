@@ -1377,9 +1377,23 @@ int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t
     return -1;
   }
 
-  /* Checking procedure Code and direction of message */
-  if (pdu.choice.initiatingMessage->procedureCode >= (long)(sizeof(ngap_messages_callback) / (3 * sizeof(ngap_message_decoded_callback))) || (pdu.present > NGAP_NGAP_PDU_PR_unsuccessfulOutcome)) {
-    NGAP_ERROR("[SCTP %u] Either procedureCode %ld or direction %d exceed expected\n", assoc_id, pdu.choice.initiatingMessage->procedureCode, pdu.present);
+  long procedureCode = -1;
+  switch (pdu.present) {
+    case NGAP_NGAP_PDU_PR_initiatingMessage:
+      procedureCode = pdu.choice.initiatingMessage->procedureCode;
+      break;
+    case NGAP_NGAP_PDU_PR_successfulOutcome:
+      procedureCode = pdu.choice.successfulOutcome->procedureCode;
+      break;
+    case NGAP_NGAP_PDU_PR_unsuccessfulOutcome:
+      procedureCode = pdu.choice.unsuccessfulOutcome->procedureCode;
+      break;
+    default:
+      break;
+  }
+
+  if (pdu.present < NGAP_NGAP_PDU_PR_initiatingMessage || pdu.present > NGAP_NGAP_PDU_PR_unsuccessfulOutcome
+    || procedureCode >= (long)(sizeof(ngap_messages_callback) / (3 * sizeof(ngap_message_decoded_callback)))) {
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
     return -1;
   }
@@ -1387,14 +1401,17 @@ int ngap_gNB_handle_message(sctp_assoc_t assoc_id, int32_t stream, const uint8_t
   /* No handler present.
    * This can mean not implemented or no procedure for gNB (wrong direction).
    */
-  if (ngap_messages_callback[pdu.choice.initiatingMessage->procedureCode][pdu.present - 1] == NULL) {
-    NGAP_ERROR("[SCTP %u] No handler for procedureCode %ld in %s\n", assoc_id, pdu.choice.initiatingMessage->procedureCode, ngap_direction2String(pdu.present - 1));
+  if (ngap_messages_callback[procedureCode][pdu.present - 1] == NULL) {
+    NGAP_ERROR("[SCTP %u] No handler for procedureCode %ld in %s\n",
+               assoc_id,
+               procedureCode,
+               ngap_direction2String(pdu.present - 1));
     ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
     return -1;
   }
 
   /* Calling the right handler */
-  ret = (*ngap_messages_callback[pdu.choice.initiatingMessage->procedureCode][pdu.present - 1])(assoc_id, stream, &pdu);
+  ret = (*ngap_messages_callback[procedureCode][pdu.present - 1])(assoc_id, stream, &pdu);
   ASN_STRUCT_FREE_CONTENTS_ONLY(asn_DEF_NGAP_NGAP_PDU, &pdu);
   return ret;
 }
