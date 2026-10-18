@@ -360,6 +360,36 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
   return 0;
 }
 
+/** @brief Encode and send Error Indication on the given SCTP association
+ * @return 0 on success, -1 on failure */
+int ngap_gNB_send_error_indication(sctp_assoc_t assoc_id, uint16_t stream, const ngap_error_indication_t *msg)
+{
+  DevAssert(msg != NULL);
+
+  ngap_gNB_amf_data_t *amf = ngap_gNB_get_AMF(NULL, assoc_id, 0);
+  if (amf == NULL || amf->ngap_gNB_instance == NULL) {
+    NGAP_ERROR("[SCTP %u] Cannot send Error Indication: no AMF context\n", assoc_id);
+    return -1;
+  }
+
+  NGAP_NGAP_PDU_t *pdu = encode_ng_error_indication(msg);
+  if (pdu == NULL) {
+    return -1;
+  }
+
+  uint8_t *buffer = NULL;
+  uint32_t length = 0;
+  if (ngap_gNB_encode_pdu(pdu, &buffer, &length) < 0) {
+    NGAP_ERROR("[SCTP %u] Failed to encode Error Indication\n", assoc_id);
+    ASN_STRUCT_FREE(asn_DEF_NGAP_NGAP_PDU, pdu);
+    return -1;
+  }
+
+  ngap_gNB_itti_send_sctp_data_req(amf->ngap_gNB_instance->instance, assoc_id, buffer, length, stream);
+  ASN_STRUCT_FREE(asn_DEF_NGAP_NGAP_PDU, pdu);
+  return 0;
+}
+
 /** @brief Handler for NGAP Error Indication message, initiated by a node
  *  to report detected errors in one incoming message, provided they cannot be reported by
  *  an appropriate failure message. */
