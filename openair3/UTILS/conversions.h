@@ -8,16 +8,6 @@
 #ifndef CONVERSIONS_H_
 #define CONVERSIONS_H_
 
-/* Big-endian integer decode from a byte buffer */
-#define ntoh_int32_buf(bUF) \
-    ((uint32_t)(*((uint8_t*)bUF)) << 24) | ((*((uint8_t*)bUF + 1)) << 16) | ((*((uint8_t*)bUF + 2)) << 8)   \
-  | (*((uint8_t*)bUF + 3))
-
-#define ntoh_int24_buf(bUF) \
-  ((*(uint8_t*)bUF << 16) | ((*((uint8_t*)bUF + 1)) << 8) | (*((uint8_t*)bUF + 2)))
-
-#define BUFFER_TO_INT8(buf, x) (x = ((buf)[0]))
-
 /* Pack uint64_t big-endian into buf[0..n), with n in [1..8] */
 static inline void uint_to_be(uint64_t x, uint8_t *buf, size_t n)
 {
@@ -25,6 +15,19 @@ static inline void uint_to_be(uint64_t x, uint8_t *buf, size_t n)
   for (size_t i = 0; i < n; i++)
     buf[i] = (uint8_t)((x >> (8 * (n - 1 - i))) & 0xff);
 }
+
+/* Decode n big-endian octets from buf[0..n) into a uint64_t (n in [1..8]) */
+static inline uint64_t uint_from_be(const uint8_t *buf, size_t n)
+{
+  DevAssert(n >= 1 && n <= 8);
+  uint64_t x = 0;
+  for (size_t i = 0; i < n; i++)
+    x = (x << 8) | buf[i];
+  return x;
+}
+
+#define ntoh_int32_buf(bUF) uint_from_be((const uint8_t *)(bUF), 4)
+#define ntoh_int24_buf(bUF) uint_from_be((const uint8_t *)(bUF), 3)
 
 /* Pack an integer into an asn1c OCTET STRING as n big-endian octets (n in [1..8]) */
 #define UINT_TO_OCTET_STRING(x, aSN, n)                \
@@ -79,30 +82,21 @@ static inline void uint_to_left_aligned_bit_string(uint64_t x, uint8_t **buf, si
   *bits_unused = u;
 }
 
+/* Inverse of uint_to_left_aligned_bit_string: BE octets, drop trailing unused bits */
+#define UINT_FROM_LEFT_ALIGNED_BIT_STRING(aSN, x, bits)                                    \
+  do {                                                                                     \
+    DevCheck((aSN)->size == (((bits) + 7) / 8), (aSN)->size, (bits), 0);                   \
+    DevCheck((aSN)->bits_unused == ((8 - ((bits)&7)) & 7), (aSN)->bits_unused, (bits), 0); \
+    (x) = uint_from_be((aSN)->buf, (aSN)->size) >> (aSN)->bits_unused;                     \
+  } while (0)
+
 #define UINT10_TO_BIT_STRING(x, aSN) uint_to_left_aligned_bit_string((x), &(aSN)->buf, &(aSN)->size, &(aSN)->bits_unused, 10)
 #define UINT6_TO_BIT_STRING(x, aSN) uint_to_left_aligned_bit_string((x), &(aSN)->buf, &(aSN)->size, &(aSN)->bits_unused, 6)
 
-/* Convert an array of char containing vALUE to x */
-#define BUFFER_TO_INT16(buf, x) \
-do {                            \
-    x = ((buf)[0] << 8)  |      \
-        ((buf)[1]);             \
-} while(0)
-
-#define BUFFER_TO_INT24(buf, x) \
-do {                            \
-    x = ((buf)[0] << 16)  |     \
-        ((buf)[1] << 8  )   |   \
-        ((buf)[2]);             \
-} while(0)
-
-#define BUFFER_TO_INT32(buf, x) \
-do {                            \
-    x = (((uint32_t)(buf)[0]) << 24) |      \
-        (((uint32_t)(buf)[1]) << 16) |      \
-        (((uint32_t)(buf)[2]) << 8)  |      \
-        (((uint32_t)(buf)[3]));             \
-} while(0)
+#define BUFFER_TO_INT8(buf, x) ((x) = uint_from_be((buf), 1))
+#define BUFFER_TO_INT16(buf, x) ((x) = uint_from_be((buf), 2))
+#define BUFFER_TO_INT24(buf, x) ((x) = uint_from_be((buf), 3))
+#define BUFFER_TO_INT32(buf, x) ((x) = uint_from_be((buf), 4))
 
 #define MME_CODE_TO_OCTET_STRING INT8_TO_OCTET_STRING
 #define M_TMSI_TO_OCTET_STRING INT32_TO_OCTET_STRING
@@ -126,36 +120,19 @@ do {                            \
     memcpy((bitstring)->buf, askeystar, 32 * sizeof(uint8_t)); \
   } while (0)
 
-#define OCTET_STRING_TO_INT8(aSN, x)    \
-do {                                    \
-    DevCheck((aSN)->size == 1, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT8((aSN)->buf, x);    \
-} while(0)
-
-#define OCTET_STRING_TO_INT16(aSN, x)   \
-do {                                    \
-    DevCheck((aSN)->size == 2 || (aSN)->size == 3, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT16((aSN)->buf, x);    \
-} while(0)
-
-#define OCTET_STRING_TO_INT24(aSN, x)              \
-  do {                                             \
-    DevCheck((aSN)->size == 3, (aSN)->size, 3, 0); \
-    BUFFER_TO_INT24((aSN)->buf, x);                \
+/* Decode an asn1c OCTET STRING of exactly n big-endian octets into x */
+#define OCTET_STRING_TO_UINT(aSN, x, n)                \
+  do {                                                 \
+    DevCheck((aSN)->size == (n), (aSN)->size, (n), 0); \
+    (x) = uint_from_be((aSN)->buf, (n));               \
   } while (0)
 
-#define OCTET_STRING_TO_INT32(aSN, x)   \
-do {                                    \
-    DevCheck((aSN)->size == 4, (aSN)->size, 0, 0);           \
-    BUFFER_TO_INT32((aSN)->buf, x);    \
-} while(0)
+#define OCTET_STRING_TO_INT8(aSN, x) OCTET_STRING_TO_UINT((aSN), (x), 1)
+#define OCTET_STRING_TO_INT16(aSN, x) OCTET_STRING_TO_UINT((aSN), (x), 2)
+#define OCTET_STRING_TO_INT24(aSN, x) OCTET_STRING_TO_UINT((aSN), (x), 3)
+#define OCTET_STRING_TO_INT32(aSN, x) OCTET_STRING_TO_UINT((aSN), (x), 4)
 
-#define BIT_STRING_TO_NR_CELL_IDENTITY(aSN, vALUE)                                                                \
-  do {                                                                                                            \
-    DevCheck((aSN)->bits_unused == 4, (aSN)->bits_unused, 4, 0);                                                  \
-    (vALUE) = ((uint64_t)(aSN)->buf[0] << 28) | ((uint64_t)(aSN)->buf[1] << 20) | ((uint64_t)(aSN)->buf[2] << 12) \
-              | ((uint64_t)(aSN)->buf[3] << 4) | ((uint64_t)(aSN)->buf[4] >> 4);                                  \
-  } while (0)
+#define BIT_STRING_TO_NR_CELL_IDENTITY(aSN, vALUE) UINT_FROM_LEFT_ALIGNED_BIT_STRING((aSN), (vALUE), 36)
 
 #define MCC_HUNDREDS(vALUE) \
     ((vALUE) / 100)
@@ -261,15 +238,7 @@ do {                                                                    \
 #define MACRO_GNB_ID_TO_BIT_STRING(mACRO, bITsTRING) \
   uint_to_left_aligned_bit_string((mACRO), &(bITsTRING)->buf, &(bITsTRING)->size, &(bITsTRING)->bits_unused, 28)
 
-#define MACRO_BIT_STRING_TO_GNB_ID(bITsTRING, oUT)          \
-do {                                                        \
-    uint8_t *_buf = (bITsTRING)->buf;                       \
-    (oUT) =                                                 \
-        ((uint32_t)_buf[0] << 20) |                         \
-        ((uint32_t)_buf[1] << 12) |                         \
-        ((uint32_t)_buf[2] << 4)  |                         \
-        (((uint32_t)_buf[3] & 0xF0) >> 4);                  \
-} while (0)
+#define MACRO_BIT_STRING_TO_GNB_ID(bITsTRING, oUT) UINT_FROM_LEFT_ALIGNED_BIT_STRING((bITsTRING), (oUT), 28)
 
 /* TS 36.413 v10.9.0 section 9.2.1.38:
  * E-UTRAN CGI/Cell Identity
