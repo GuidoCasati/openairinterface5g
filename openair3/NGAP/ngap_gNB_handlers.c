@@ -17,6 +17,7 @@
 #include "T.h"
 #include "assertions.h"
 #include "common/utils/T/T.h"
+#include "common/utils/utils.h"
 #include "constr_TYPE.h"
 #include "conversions.h"
 #include "intertask_interface.h"
@@ -223,7 +224,7 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
     struct served_guami_s   *new_guami_p;
 
     guami_item_p = ie->value.choice.ServedGUAMIList.list.array[i];
-    new_guami_p = calloc(1, sizeof(struct served_guami_s));
+    new_guami_p = calloc_or_fail(1, sizeof(*new_guami_p));
     nr_guami_t *g = &new_guami_p->guami;
 
     TBCD_TO_MCC_MNC(&guami_item_p->gUAMI.pLMNIdentity, g->plmn.mcc, g->plmn.mnc, g->plmn.mnc_digit_length);
@@ -245,7 +246,7 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
                              NGAP_ProtocolIE_ID_id_AMFName, true);
 
   if (ie) {
-    amf_desc_p->amf_name = malloc(ie->value.choice.AMFName.size + 1);
+    amf_desc_p->amf_name = malloc_or_fail(ie->value.choice.AMFName.size + 1);
     memcpy(amf_desc_p->amf_name, ie->value.choice.AMFName.buf, ie->value.choice.AMFName.size);
     amf_desc_p->amf_name[ie->value.choice.AMFName.size] = '\0';
   }
@@ -268,7 +269,7 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
 
     plmn_support_item_p = ie->value.choice.PLMNSupportList.list.array[i];
 
-    new_plmn_support_p = calloc(1, sizeof(struct plmn_support_s));
+    new_plmn_support_p = calloc_or_fail(1, sizeof(*new_plmn_support_p));
 
     struct plmn_identity_s *plmn = &new_plmn_support_p->plmn_identity;
     TBCD_TO_MCC_MNC(&plmn_support_item_p->pLMNIdentity, plmn->mcc, plmn->mnc, plmn->mnc_digit_length);
@@ -280,7 +281,7 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
     for(int j=0; j<plmn_support_item_p->sliceSupportList.list.count; j++) {
       slice_support_item_p = plmn_support_item_p->sliceSupportList.list.array[j];
       
-      new_slice_support_p = calloc(1, sizeof(struct slice_support_s));
+      new_slice_support_p = calloc_or_fail(1, sizeof(*new_slice_support_p));
 
       OCTET_STRING_TO_INT8(&slice_support_item_p->s_NSSAI.sST, new_slice_support_p->sST);
 
