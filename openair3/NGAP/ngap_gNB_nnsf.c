@@ -111,7 +111,7 @@ ngap_gNB_amf_data_t *ngap_gNB_nnsf_select_amf_by_plmn_id(ngap_gNB_instance_t *in
 
     /* Looking for served GUAMI PLMN Identity selected matching the one provided by the UE */
     STAILQ_FOREACH(guami_p, &amf_data_p->served_guami, next) {
-      if ((guami_p->guami.plmn.mcc == selected_plmn_identity.mcc) && (guami_p->guami.plmn.mnc == selected_plmn_identity.mnc)) {
+      if (eq_ngap_plmn(&guami_p->guami.plmn, &selected_plmn_identity)) {
         break;
       }
     }
@@ -175,7 +175,7 @@ ngap_gNB_amf_data_t *ngap_gNB_nnsf_select_amf_by_amf_setid(ngap_gNB_instance_t *
 
     /* Looking for AMF code matching the one provided by NAS */
     STAILQ_FOREACH(guami_p, &amf_data_p->served_guami, next) {
-      if ((guami_p->guami.plmn.mcc == selected_plmn_identity.mcc) && (guami_p->guami.plmn.mnc == selected_plmn_identity.mnc)
+      if (eq_ngap_plmn(&guami_p->guami.plmn, &selected_plmn_identity)
           && (guami_p->guami.amf_set_id == amf_setid)) {
         return amf_data_p;
       }
@@ -239,7 +239,7 @@ ngap_gNB_amf_data_t *ngap_gNB_nnsf_select_amf_by_guami(ngap_gNB_instance_t *inst
 
     /* Looking for AMF guami matching the one provided by NAS */
     STAILQ_FOREACH(guami_p, &amf_data_p->served_guami, next) {
-      if ((guami_p->guami.plmn.mcc == guami.plmn.mcc) && (guami_p->guami.plmn.mnc == guami.plmn.mnc)
+      if (eq_ngap_plmn(&guami_p->guami.plmn, &guami.plmn)
           && (guami_p->guami.amf_region_id == guami.amf_region_id) && (guami_p->guami.amf_set_id == guami.amf_set_id)
           && (guami_p->guami.amf_pointer == guami.amf_pointer)) {
         return amf_data_p;
@@ -294,7 +294,7 @@ ngap_gNB_amf_data_t *ngap_gNB_nnsf_select_amf_by_guami_no_cause(ngap_gNB_instanc
 
     /* Looking for AMF guami matching the one provided by NAS */
     STAILQ_FOREACH(guami_p, &amf_data_p->served_guami, next) {
-      if ((guami_p->guami.plmn.mcc == guami.plmn.mcc) && (guami_p->guami.plmn.mnc == guami.plmn.mnc)
+      if (eq_ngap_plmn(&guami_p->guami.plmn, &guami.plmn)
           && (guami_p->guami.amf_set_id == guami.amf_set_id) && (guami_p->guami.amf_region_id == guami.amf_region_id)) {
         return amf_data_p;
       }

@@ -225,12 +225,7 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
 
     guami_item_p = ie->value.choice.ServedGUAMIList.list.array[i];
     new_guami_p = calloc_or_fail(1, sizeof(*new_guami_p));
-    nr_guami_t *g = &new_guami_p->guami;
-
-    TBCD_TO_MCC_MNC(&guami_item_p->gUAMI.pLMNIdentity, g->plmn.mcc, g->plmn.mnc, g->plmn.mnc_digit_length);
-    g->amf_region_id = BIT_STRING_to_uint8(&guami_item_p->gUAMI.aMFRegionID);
-    g->amf_set_id = BIT_STRING_to_uint16(&guami_item_p->gUAMI.aMFSetID);
-    g->amf_pointer = BIT_STRING_to_uint8(&guami_item_p->gUAMI.aMFPointer);
+    new_guami_p->guami = decode_ngap_guami(&guami_item_p->gUAMI);
 
     STAILQ_INSERT_TAIL(&amf_desc_p->served_guami, new_guami_p, next);
   }
