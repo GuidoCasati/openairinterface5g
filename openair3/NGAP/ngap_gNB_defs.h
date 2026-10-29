@@ -137,10 +137,7 @@ typedef struct ngap_gNB_instance_s {
   /* Displayable name of gNB */
   char *gNB_name;
 
-  /* Unique gNB_id to identify the gNB within EPC.
-   * In our case the gNB is a macro gNB so the id will be 20 bits long.
-   * For Home gNB id, this field should be 36 bits long.
-   */
+  /* gNB identifier within a PLMN (22..32 bits) */
   uint32_t gNB_id;
   /* The type of the cell */
   enum cell_type_e cell_type;
