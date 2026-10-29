@@ -246,56 +246,33 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
     amf_desc_p->amf_name[ie->value.choice.AMFName.size] = '\0';
   }
   ngap_dump_served_guami(amf_desc_p);
-  
-  /* mandatory set the plmn supports */
+
+  /* PLMN Support List (Mandatory) */
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_NGSetupResponseIEs_t, ie, container,
                                NGAP_ProtocolIE_ID_id_PLMNSupportList, true);
 
   DevAssert(ie->value.choice.PLMNSupportList.list.count > 0);
   DevAssert(ie->value.choice.PLMNSupportList.list.count <= NGAP_maxnoofPLMNs);
 
-  STAILQ_INIT(&amf_desc_p->plmn_supports);
-
   for (i = 0; i < ie->value.choice.PLMNSupportList.list.count; i++) {
-    NGAP_PLMNSupportItem_t *plmn_support_item_p;
-    struct plmn_support_s  *new_plmn_support_p;
-    NGAP_SliceSupportItem_t  *slice_support_item_p;
-    struct slice_support_s *new_slice_support_p;
-
-    plmn_support_item_p = ie->value.choice.PLMNSupportList.list.array[i];
-
-    new_plmn_support_p = calloc_or_fail(1, sizeof(*new_plmn_support_p));
-
-    struct plmn_identity_s *plmn = &new_plmn_support_p->plmn_identity;
-    TBCD_TO_MCC_MNC(&plmn_support_item_p->pLMNIdentity, plmn->mcc, plmn->mnc, plmn->mnc_digit_length);
-    NGAP_INFO("Supported PLMN %d: MCC=%03d MNC=%0*d\n", i, plmn->mcc, plmn->mnc_digit_length, plmn->mnc);
+    NGAP_PLMNSupportItem_t *plmn_support_item_p = ie->value.choice.PLMNSupportList.list.array[i];
+    plmn_id_t plmn = {0};
+    TBCD_TO_MCC_MNC(&plmn_support_item_p->pLMNIdentity, plmn.mcc, plmn.mnc, plmn.mnc_digit_length);
+    NGAP_INFO("Supported PLMN %d: MCC=%03d MNC=%0*d\n", i, plmn.mcc, plmn.mnc_digit_length, plmn.mnc);
     DevAssert(plmn_support_item_p->sliceSupportList.list.count > 0);
     DevAssert(plmn_support_item_p->sliceSupportList.list.count <= NGAP_maxnoofSliceItems);
 
-    STAILQ_INIT(&new_plmn_support_p->slice_supports);
-    for(int j=0; j<plmn_support_item_p->sliceSupportList.list.count; j++) {
-      slice_support_item_p = plmn_support_item_p->sliceSupportList.list.array[j];
-      
-      new_slice_support_p = calloc_or_fail(1, sizeof(*new_slice_support_p));
+    for (int j = 0; j < plmn_support_item_p->sliceSupportList.list.count; j++) {
+      NGAP_SliceSupportItem_t *slice_support_item_p = plmn_support_item_p->sliceSupportList.list.array[j];
+      uint8_t sst;
+      uint8_t sd[3] = {0};
+      OCTET_STRING_TO_INT8(&slice_support_item_p->s_NSSAI.sST, sst);
 
-      OCTET_STRING_TO_INT8(&slice_support_item_p->s_NSSAI.sST, new_slice_support_p->sST);
-
-      if(slice_support_item_p->s_NSSAI.sD != NULL) {
-        new_slice_support_p->sD_flag = 1;
-        new_slice_support_p->sD[0] = slice_support_item_p->s_NSSAI.sD->buf[0];
-        new_slice_support_p->sD[1] = slice_support_item_p->s_NSSAI.sD->buf[1];
-        new_slice_support_p->sD[2] = slice_support_item_p->s_NSSAI.sD->buf[2];
+      if (slice_support_item_p->s_NSSAI.sD != NULL) {
+        memcpy(sd, slice_support_item_p->s_NSSAI.sD->buf, sizeof(sd));
       }
-      NGAP_INFO("Supported slice (PLMN %d): SST=0x%02x SD=%d%d%d\n",
-                i,
-                new_slice_support_p->sST,
-                new_slice_support_p->sD[0],
-                new_slice_support_p->sD[1],
-                new_slice_support_p->sD[2]);
-      STAILQ_INSERT_TAIL(&new_plmn_support_p->slice_supports, new_slice_support_p, next);
+      NGAP_INFO("Supported slice (PLMN %d): SST=0x%02x SD=%d%d%d\n", i, sst, sd[0], sd[1], sd[2]);
     }
-
-    STAILQ_INSERT_TAIL(&amf_desc_p->plmn_supports, new_plmn_support_p, next);
   }
 
   /* The association is now ready as gNB and AMF know parameters of each other.

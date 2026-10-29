@@ -58,44 +58,11 @@ typedef enum {
   NGAP_OVERLOAD_MAX,
 } ngap_overload_state_t;
 
-/* Served PLMN identity element */
-struct plmn_identity_s {
-  uint16_t mcc;
-  uint16_t mnc;
-  uint8_t  mnc_digit_length;
-  STAILQ_ENTRY(plmn_identity_s) next;
-};
-
 /* ServedGUAMIItem: GUAMI per TS 38.413 §9.3.3.3 */
 struct served_guami_s {
   nr_guami_t guami;
   STAILQ_ENTRY(served_guami_s) next;
 };
-
-/* NSSAI element */
-struct slice_support_s{
-  uint8_t sST;
-  uint8_t sD_flag;
-  uint8_t sD[3];
-  
-  /* Next slice element */
-  STAILQ_ENTRY(slice_support_s) next;
-};
-
-
-/* plmn support element */
-struct plmn_support_s {
-  struct plmn_identity_s plmn_identity;
-
-  /* Number of slice support in list */
-  uint8_t nb_slice_s;
-  /* Served group id list */
-  STAILQ_HEAD(slice_supports_s, slice_support_s) slice_supports;
-
-  /* Next plmn support element */
-  STAILQ_ENTRY(plmn_support_s) next;
-};
-
 
 struct ngap_gNB_instance_s;
 
@@ -120,12 +87,6 @@ typedef struct ngap_gNB_amf_data_s {
    * in TS 23.401.
    */
   uint8_t relative_amf_capacity;
-
-  /*
-   * List of PLMN Support per AMF.
-   *
-   */
-  STAILQ_HEAD(plmn_supports_s, plmn_support_s) plmn_supports;
 
   /* Current AMF overload information (if any). */
   ngap_overload_state_t overload_state;
