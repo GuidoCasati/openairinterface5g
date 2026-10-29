@@ -239,12 +239,12 @@ static int ngap_gNB_handle_ng_setup_response(sctp_assoc_t assoc_id, uint32_t str
   /* mandatory set the amf name */
   NGAP_FIND_PROTOCOLIE_BY_ID(NGAP_NGSetupResponseIEs_t, ie, container,
                              NGAP_ProtocolIE_ID_id_AMFName, true);
-
-  if (ie) {
-    amf_desc_p->amf_name = malloc_or_fail(ie->value.choice.AMFName.size + 1);
-    memcpy(amf_desc_p->amf_name, ie->value.choice.AMFName.buf, ie->value.choice.AMFName.size);
-    amf_desc_p->amf_name[ie->value.choice.AMFName.size] = '\0';
+  amf_desc_p->amf_name = strndup((const char *)ie->value.choice.AMFName.buf, ie->value.choice.AMFName.size);
+  if (amf_desc_p->amf_name == NULL) {
+    NGAP_ERROR("Failed to allocate AMF name\n");
+    return -1;
   }
+
   ngap_dump_served_guami(amf_desc_p);
 
   /* PLMN Support List (Mandatory) */
